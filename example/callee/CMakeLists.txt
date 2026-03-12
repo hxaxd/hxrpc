@@ -1,17 +1,14 @@
-#获取服务端的源文件
+# 获取服务端的源文件
 file(GLOB SERVER_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
 
-#获取protobuf生成的.cc
-file(GLOB PROTO_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/../*.pb.cc)
+# 创建服务端可执行文件
+add_executable(server ${SERVER_SRCS})
 
-#创建服务端可执行文件
-add_executable(server ${SERVER_SRCS} ${PROTO_SRCS})
+# 链接必要的库：core, example_proto(刚才生成的), 以及全局依赖 LIBS
+target_link_libraries(server core example_proto ${LIBS})
 
-#链接必要的库，尤其是example中生成的静态库
-target_link_libraries(server core ${LIBS})
-
-#设置编译选项
-target_compile_options(server PRIVATE -std=c++11 -Wall)
+# 设置编译选项（使用根目录的 C++23 标准，只需保留 -Wall 警告即可）
+target_compile_options(server PRIVATE -Wall)
 
 # 设置 server 可执行文件输出目录
 set_target_properties(server PROPERTIES

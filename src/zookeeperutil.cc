@@ -1,3 +1,4 @@
+#define THREADED
 #include "zookeeperutil.h"
 #include "Logger.h"
 #include "application.h"

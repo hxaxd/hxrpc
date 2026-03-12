@@ -1,9 +1,11 @@
 #ifndef _zookeeperutil_h_
 #define _zookeeperutil_h_
 
+#define THREADED
 #include<semaphore.h>
 #include<zookeeper/zookeeper.h>
 #include<string>
+#include <google/protobuf/message.h>
 
 //封装的zk客户端
 class ZkClient

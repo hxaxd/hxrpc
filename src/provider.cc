@@ -70,7 +70,7 @@ void hxrpcProvider::Run() {
                 std::placeholders::_2, std::placeholders::_3));
 
   // 设置muduo库的线程数量
-  server->setThreadNum(4);
+  server->setThreadNum(2);
 
   // 将当前RPC节点上要发布的服务全部注册到ZooKeeper上，让RPC客户端可以在ZooKeeper上发现服务
   ZkClient zkclient;

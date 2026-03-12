@@ -1,10 +1,11 @@
 #include "config.h"
-#include "memory"
+#include <memory>
+#include <string>
 
 // 加载配置文件，解析配置文件中的键值对
 void hxrpcconfig::LoadConfigFile(const char *config_file) {
-  // 使用智能指针管理文件指针，确保文件在退出时自动关闭
-  std::unique_ptr<FILE, decltype(&fclose)> pf(
+  // 使用智能指针管理文件指针，确保文件在退出时自动关闭（已修复 C++23 编译警告）
+  std::unique_ptr<FILE, int(*)(FILE*)> pf(
       fopen(config_file, "r"), // 打开配置文件
       &fclose                  // 文件关闭函数
   );
