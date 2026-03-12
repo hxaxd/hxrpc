@@ -4,3 +4,4 @@ bin/*
 build/*
 */*.o
 cmake-build-debug/*
+PLAN.md
