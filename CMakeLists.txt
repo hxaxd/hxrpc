@@ -1,8 +1,6 @@
-#设置最低版本和项目名称
 cmake_minimum_required(VERSION 3.20)
 project(hxrpc)
 
-#设置全局的C++标准
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
@@ -20,7 +18,6 @@ set(LIBS
     zookeeper_mt
     muduo_net
     muduo_base
-    glog
 )
 
 add_subdirectory(src)
