@@ -1,69 +1,121 @@
 #include "config.h"
+#include <cstdio>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
-// 加载配置文件，解析配置文件中的键值对
-void hxrpcconfig::LoadConfigFile(const char *config_file) {
-  // 使用智能指针管理文件指针，确保文件在退出时自动关闭（已修复 C++23 编译警告）
-  std::unique_ptr<FILE, int(*)(FILE*)> pf(
-      fopen(config_file, "r"), // 打开配置文件
-      &fclose                  // 文件关闭函数
-  );
+namespace {
 
-  if (pf == nullptr) {  // 如果文件打开失败
-    exit(EXIT_FAILURE); // 退出程序
+std::string TrimCopy(std::string value) {
+  hxrpcconfig::Trim(value);
+  return value;
+}
+
+std::string StripQuotes(std::string value) {
+  if (value.size() >= 2 &&
+      ((value.front() == '"' && value.back() == '"') ||
+       (value.front() == '\'' && value.back() == '\''))) {
+    return value.substr(1, value.size() - 2);
+  }
+  return value;
+}
+
+std::size_t CountIndent(std::string_view line) {
+  std::size_t indent = 0;
+  while (indent < line.size() && (line[indent] == ' ' || line[indent] == '\t')) {
+    ++indent;
+  }
+  return indent;
+}
+
+void ParseYamlLine(
+    std::string line, std::vector<std::pair<std::size_t, std::string>> &sections,
+    std::unordered_map<std::string, std::string> &config_map) {
+  const auto comment = line.find('#');
+  if (comment != std::string::npos) {
+    line.erase(comment);
+  }
+  if (TrimCopy(line).empty()) {
+    return;
   }
 
-  char buf[1024]; // 用于存储从文件中读取的每一行内容
-  // 使用pf.get()方法获取原始指针，逐行读取文件内容
-  while (fgets(buf, 1024, pf.get()) != nullptr) {
-    std::string read_buf(buf); // 将读取的内容转换为字符串
-    Trim(read_buf);            // 去掉字符串前后的空格
+  const std::size_t indent = CountIndent(line);
+  std::string trimmed = TrimCopy(line);
+  const auto delimiter = trimmed.find(':');
+  if (delimiter == std::string::npos) {
+    return;
+  }
 
-    // 忽略注释行（以#开头）和空行
-    if (read_buf[0] == '#' || read_buf.empty())
+  std::string key = StripQuotes(TrimCopy(trimmed.substr(0, delimiter)));
+  std::string value = StripQuotes(TrimCopy(trimmed.substr(delimiter + 1)));
+
+  while (!sections.empty() && sections.back().first >= indent) {
+    sections.pop_back();
+  }
+
+  if (value.empty()) {
+    sections.emplace_back(indent, key);
+    return;
+  }
+
+  std::string path;
+  for (const auto &[section_indent, section] : sections) {
+    (void)section_indent;
+    if (!path.empty()) {
+      path.push_back('.');
+    }
+    path += section;
+  }
+  if (!path.empty()) {
+    path.push_back('.');
+  }
+  path += key;
+  config_map[path] = value;
+}
+
+} // namespace
+
+std::expected<void, std::string>
+hxrpcconfig::LoadConfigFile(const char *config_file) {
+  FILE *raw_file = std::fopen(config_file, "r");
+  if (raw_file == nullptr) {
+    return std::unexpected("failed to open config file");
+  }
+
+  std::unique_ptr<FILE, decltype(&std::fclose)> file(raw_file, &std::fclose);
+  config_map_.clear();
+  std::vector<std::pair<std::size_t, std::string>> yaml_sections;
+
+  char buffer[1024];
+  while (std::fgets(buffer, sizeof(buffer), file.get()) != nullptr) {
+    std::string line(buffer);
+    const std::string trimmed = TrimCopy(line);
+    if (trimmed.empty() || trimmed.front() == '#') {
       continue;
+    }
 
-    // 查找键值对的分隔符'='
-    int index = read_buf.find('=');
-    if (index == -1)
-      continue; // 如果没有找到'='，跳过该行
-
-    // 提取键（key）
-    std::string key = read_buf.substr(0, index);
-    Trim(key); // 去掉key前后的空格
-
-    // 查找行尾的换行符
-    int endindex = read_buf.find('\n', index);
-    // 提取值（value），并去掉换行符
-    std::string value = read_buf.substr(index + 1, endindex - index - 1);
-    Trim(value); // 去掉value前后的空格
-
-    // 将键值对存入配置map中
-    config_map.insert({key, value});
+    ParseYamlLine(line, yaml_sections, config_map_);
   }
+
+  return {};
 }
 
-// 根据key查找对应的value
-std::string hxrpcconfig::Load(const std::string &key) {
-  auto it = config_map.find(key); // 在map中查找key
-  if (it == config_map.end()) {   // 如果未找到
-    return "";                    // 返回空字符串
+std::string hxrpcconfig::Load(std::string_view key) const {
+  const auto it = config_map_.find(std::string(key));
+  if (it == config_map_.end()) {
+    return {};
   }
-  return it->second; // 返回对应的value
+  return it->second;
 }
 
-// 去掉字符串前后的空格
-void hxrpcconfig::Trim(std::string &read_buf) {
-  // 去掉字符串前面的空格
-  int index = read_buf.find_first_not_of(' ');
-  if (index != -1) { // 如果找到非空格字符
-    read_buf = read_buf.substr(index, read_buf.size() - index); // 截取字符串
+void hxrpcconfig::Trim(std::string &value) {
+  const auto begin = value.find_first_not_of(" \t\r\n");
+  if (begin == std::string::npos) {
+    value.clear();
+    return;
   }
 
-  // 去掉字符串后面的空格
-  index = read_buf.find_last_not_of(' ');
-  if (index != -1) {                          // 如果找到非空格字符
-    read_buf = read_buf.substr(0, index + 1); // 截取字符串
-  }
+  const auto end = value.find_last_not_of(" \t\r\n");
+  value = value.substr(begin, end - begin + 1);
 }

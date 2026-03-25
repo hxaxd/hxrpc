@@ -1,45 +1,43 @@
 #include "controller.h"
 
-// 构造函数，初始化控制器状态
-hxrpccontroller::hxrpccontroller() {
-  m_failed = false; // 初始状态为未失败
-  m_errText = "";   // 错误信息初始为空
-}
+hxrpccontroller::hxrpccontroller() = default;
 
-// 重置控制器状态，将失败标志和错误信息清空
 void hxrpccontroller::Reset() {
-  m_failed = false; // 重置失败标志
-  m_errText = "";   // 清空错误信息
+  failed_ = false;
+  error_code_ = hxrpc::RpcStatusCode::kOk;
+  error_text_.clear();
+  request_metadata_.clear();
 }
 
-// 判断当前RPC调用是否失败
-bool hxrpccontroller::Failed() const {
-  return m_failed; // 返回失败标志
-}
+bool hxrpccontroller::Failed() const { return failed_; }
 
-// 获取错误信息
-std::string hxrpccontroller::ErrorText() const {
-  return m_errText; // 返回错误信息
-}
+std::string hxrpccontroller::ErrorText() const { return error_text_; }
 
-// 设置RPC调用失败，并记录失败原因
 void hxrpccontroller::SetFailed(const std::string &reason) {
-  m_failed = true;    // 设置失败标志
-  m_errText = reason; // 记录失败原因
+  SetError(hxrpc::RpcStatusCode::kInternalError, reason);
 }
 
-// 以下功能未实现，是RPC服务端提供的取消功能
-// 开始取消RPC调用（未实现）
-void hxrpccontroller::StartCancel() {
-  // 目前为空，未实现具体功能
+void hxrpccontroller::SetError(hxrpc::RpcStatusCode code,
+                               const std::string &reason) {
+  failed_ = true;
+  error_code_ = code;
+  error_text_ = reason;
 }
 
-// 判断RPC调用是否被取消（未实现）
-bool hxrpccontroller::IsCanceled() const {
-  return false; // 默认返回false，表示未被取消
+hxrpc::RpcStatusCode hxrpccontroller::ErrorCode() const { return error_code_; }
+
+void hxrpccontroller::SetRequestMetadata(std::string metadata) {
+  request_metadata_ = std::move(metadata);
 }
 
-// 注册取消回调函数（未实现）
+const std::string &hxrpccontroller::RequestMetadata() const {
+  return request_metadata_;
+}
+
+void hxrpccontroller::StartCancel() {}
+
+bool hxrpccontroller::IsCanceled() const { return false; }
+
 void hxrpccontroller::NotifyOnCancel(google::protobuf::Closure *callback) {
-  // 目前为空，未实现具体功能
+  (void)callback;
 }

@@ -1,26 +1,44 @@
-#ifndef _zookeeperutil_h_
-#define _zookeeperutil_h_
+#ifndef HXRPC_ZOOKEEPER_UTIL_H
+#define HXRPC_ZOOKEEPER_UTIL_H
 
 #define THREADED
-#include<semaphore.h>
-#include<zookeeper/zookeeper.h>
-#include<string>
-#include <google/protobuf/message.h>
 
-//封装的zk客户端
-class ZkClient
-{
+#include "types.h"
+#include <expected>
+#include <functional>
+#include <memory>
+#include <string>
+#include <vector>
+#include <zookeeper/zookeeper.h>
+
+class ZkClient {
 public:
-    ZkClient();
-    ~ZkClient();
-    //zkclient启动连接zkserver
-    void Start();
-    //在zkserver中创建一个节点，根据指定的path
-    void Create(const char* path,const char* data,int datalen,int state=0);
-    //根据参数指定的znode节点路径，或者znode节点值
-    std::string GetData(const char* path);
+  struct ChildWatch;
+
+  ZkClient();
+  ~ZkClient();
+
+  ZkClient(const ZkClient &) = delete;
+  ZkClient &operator=(const ZkClient &) = delete;
+
+  [[nodiscard]] std::expected<void, hxrpc::RpcError> Start();
+  [[nodiscard]] std::expected<void, hxrpc::RpcError>
+  Start(const hxrpc::Endpoint &endpoint);
+  [[nodiscard]] std::expected<void, hxrpc::RpcError>
+  CreateNode(const char *path, const char *data, int datalen, int flags = 0);
+  [[nodiscard]] std::expected<void, hxrpc::RpcError>
+  EnsurePath(const char *path);
+  [[nodiscard]] std::expected<std::string, hxrpc::RpcError>
+  GetData(const char *path) const;
+  [[nodiscard]] std::expected<std::vector<std::string>, hxrpc::RpcError>
+  GetChildren(const char *path) const;
+  [[nodiscard]] std::expected<std::vector<std::string>, hxrpc::RpcError>
+  GetChildrenWatched(const std::string &path,
+                     std::function<void(const std::string &)> on_change);
+
 private:
-    //Zk的客户端句柄
-    zhandle_t* m_zhandle;
+  zhandle_t *handle_{nullptr};
+  std::vector<std::shared_ptr<ChildWatch>> child_watches_;
 };
+
 #endif

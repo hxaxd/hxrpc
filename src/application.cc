@@ -1,60 +1,80 @@
 #include "application.h"
+#include "logger.h"
+#include <cctype>
 #include <cstdlib>
-#include <unistd.h>
 
-hxrpcconfig hxrpcApplication::m_config; // 全局配置对象
-std::mutex hxrpcApplication::m_mutex;   // 用于线程安全的互斥锁
-hxrpcApplication *hxrpcApplication::m_application =
-    nullptr; // 单例对象指针，初始为空
+hxrpcApplication *hxrpcApplication::application_ = nullptr;
+hxrpcconfig hxrpcApplication::config_{};
+std::mutex hxrpcApplication::mutex_{};
 
-// 初始化函数，用于解析命令行参数并加载配置文件
-void hxrpcApplication::Init(int argc, char **argv) {
-  if (argc < 2) { // 如果命令行参数少于2个，说明没有指定配置文件
-    std::cout << "格式: command -i <配置文件路径>" << std::endl;
-    exit(EXIT_FAILURE); // 退出程序
+namespace {
+
+bool ParseBoolWithDefault(std::string value, bool default_value) {
+  for (char &ch : value) {
+    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
   }
+  if (value.empty()) {
+    return default_value;
+  }
+  if (value == "1" || value == "true" || value == "yes" || value == "on") {
+    return true;
+  }
+  if (value == "0" || value == "false" || value == "no" || value == "off") {
+    return false;
+  }
+  return default_value;
+}
 
-  int o;
+void ConfigureLogger(const hxrpcconfig &config) {
+  hxrpc::LoggerOptions options;
+  options.async_enabled =
+      ParseBoolWithDefault(config.Load("logging.async"), true);
+  options.stderr_enabled =
+      ParseBoolWithDefault(config.Load("logging.to_stderr"), true);
+  options.file_path = config.Load("logging.path");
+
+  if (auto result = hxrpc::Logger::Instance().Configure(options); !result) {
+    LOG(Warn) << "failed to configure logger: " << result.error();
+  }
+}
+
+} // namespace
+
+void hxrpcApplication::Init(int argc, char **argv) {
   std::string config_file;
-  // 使用getopt解析命令行参数，-i表示指定配置文件
-  while (-1 != (o = getopt(argc, argv, "i:"))) {
-    switch (o) {
-    case 'i':               // 如果参数是-i，后面的值就是配置文件的路径
-      config_file = optarg; // 将配置文件路径保存到config_file
-      break;
-    case '?': // 如果出现未知参数（不是-i），提示正确格式并退出
-      std::cout << "格式: command -i <配置文件路径>" << std::endl;
-      exit(EXIT_FAILURE);
-      break;
-    case ':': // 如果-i后面没有跟参数，提示正确格式并退出
-      std::cout << "格式: command -i <配置文件路径>" << std::endl;
-      exit(EXIT_FAILURE);
-      break;
-    default:
-      break;
+  for (int index = 1; index < argc; ++index) {
+    const std::string arg = argv[index];
+    if (arg == "-i" && index + 1 < argc) {
+      config_file = argv[++index];
     }
   }
 
-  // 加载配置文件
-  m_config.LoadConfigFile(config_file.c_str());
+  if (config_file.empty()) {
+    LOG(Error) << "missing config file, use: command -i <config-file>";
+    std::exit(EXIT_FAILURE);
+  }
+
+  if (auto result = config_.LoadConfigFile(config_file.c_str()); !result) {
+    LOG(Error) << "failed to load config file '" << config_file
+               << "': " << result.error();
+    std::exit(EXIT_FAILURE);
+  }
+
+  ConfigureLogger(config_);
 }
 
-// 获取单例对象的引用，保证全局只有一个实例
 hxrpcApplication &hxrpcApplication::GetInstance() {
-  std::lock_guard<std::mutex> lock(m_mutex); // 加锁，保证线程安全
-  if (m_application == nullptr) {            // 如果单例对象还未创建
-    m_application = new hxrpcApplication();  // 创建单例对象
-    atexit(deleteInstance); // 注册atexit函数，程序退出时自动销毁单例对象
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (application_ == nullptr) {
+    application_ = new hxrpcApplication();
+    std::atexit(DeleteInstance);
   }
-  return *m_application; // 返回单例对象的引用
+  return *application_;
 }
 
-// 程序退出时自动调用的函数，用于销毁单例对象
-void hxrpcApplication::deleteInstance() {
-  if (m_application) {    // 如果单例对象存在
-    delete m_application; // 销毁单例对象
-  }
-}
+hxrpcconfig &hxrpcApplication::GetConfig() { return config_; }
 
-// 获取全局配置对象的引用
-hxrpcconfig &hxrpcApplication::GetConfig() { return m_config; }
+void hxrpcApplication::DeleteInstance() {
+  delete application_;
+  application_ = nullptr;
+}

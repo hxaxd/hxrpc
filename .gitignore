@@ -1,7 +1,8 @@
 bin/*
 .vscode/*
 .idea/*
-build/*
+build*/*
 */*.o
 cmake-build-debug/*
 PLAN.md
+logs/*

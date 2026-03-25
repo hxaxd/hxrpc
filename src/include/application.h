@@ -1,24 +1,25 @@
-#ifndef _hxrpcapplication_H
-#define _hxrpcapplication_H
-#include "channel.h"
+#ifndef HXRPC_APPLICATION_H
+#define HXRPC_APPLICATION_H
+
 #include "config.h"
-#include "controller.h"
 #include <mutex>
-// hxrpc基础类，负责框架的一些初始化操作
+
 class hxrpcApplication {
 public:
   static void Init(int argc, char **argv);
   static hxrpcApplication &GetInstance();
-  static void deleteInstance();
   static hxrpcconfig &GetConfig();
 
 private:
-  static hxrpcconfig m_config;
-  static hxrpcApplication *m_application; // 全局唯一单例访问对象
-  static std::mutex m_mutex;
-  hxrpcApplication() {}
-  ~hxrpcApplication() {}
+  static void DeleteInstance();
+  static hxrpcApplication *application_;
+  static hxrpcconfig config_;
+  static std::mutex mutex_;
+
+  hxrpcApplication() = default;
+  ~hxrpcApplication() = default;
   hxrpcApplication(const hxrpcApplication &) = delete;
-  hxrpcApplication(hxrpcApplication &&) = delete;
+  hxrpcApplication &operator=(const hxrpcApplication &) = delete;
 };
+
 #endif

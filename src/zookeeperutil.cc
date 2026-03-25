@@ -1,100 +1,204 @@
 #define THREADED
 #include "zookeeperutil.h"
-#include "Logger.h"
 #include "application.h"
+#include "types.h"
 #include <condition_variable>
+#include <cstring>
+#include <functional>
 #include <mutex>
+#include <string>
+#include <utility>
 
-std::mutex cv_mutex;        // 全局锁，用于保护共享变量的线程安全
-std::condition_variable cv; // 条件变量，用于线程间通信
-bool is_connected = false;  // 标记ZooKeeper客户端是否连接成功
+namespace {
 
-// 全局的watcher观察器，用于接收ZooKeeper服务器的通知
-void global_watcher(zhandle_t *zh, int type, int status, const char *path,
-                    void *watcherCtx) {
-  if (type == ZOO_SESSION_EVENT) {       // 回调消息类型和会话相关的事件
-    if (status == ZOO_CONNECTED_STATE) { // ZooKeeper客户端和服务器连接成功
-      std::lock_guard<std::mutex> lock(cv_mutex); // 加锁保护
-      is_connected = true;                        // 标记连接成功
-    }
-  }
-  cv.notify_all(); // 通知所有等待的线程
+std::mutex g_connection_mutex;
+std::condition_variable g_connection_cv;
+bool g_connected = false;
+
+hxrpc::RpcError MakeZkError(hxrpc::RpcStatusCode code, std::string message) {
+  return hxrpc::RpcError{code, std::move(message)};
 }
 
-// 构造函数，初始化ZooKeeper客户端句柄为空
-ZkClient::ZkClient() : m_zhandle(nullptr) {}
+void GlobalWatcher(zhandle_t *handle, int type, int state, const char *path,
+                   void *watcher_ctx) {
+  (void)handle;
+  (void)path;
+  (void)watcher_ctx;
 
-// 析构函数，关闭ZooKeeper连接
+  if (type == ZOO_SESSION_EVENT && state == ZOO_CONNECTED_STATE) {
+    std::lock_guard<std::mutex> lock(g_connection_mutex);
+    g_connected = true;
+    g_connection_cv.notify_all();
+  }
+}
+
+} // namespace
+
+struct ZkClient::ChildWatch {
+  std::string path;
+  std::function<void(const std::string &)> callback;
+};
+
+ZkClient::ZkClient() = default;
+
 ZkClient::~ZkClient() {
-  if (m_zhandle != nullptr) {
-    zookeeper_close(m_zhandle); // 关闭ZooKeeper连接
+  if (handle_ != nullptr) {
+    zookeeper_close(handle_);
   }
 }
 
-// 启动ZooKeeper客户端，连接ZooKeeper服务器
-void ZkClient::Start() {
-  // 从配置文件中读取ZooKeeper服务器的IP和端口
-  std::string host =
-      hxrpcApplication::GetInstance().GetConfig().Load("zookeeperip");
-  std::string port =
-      hxrpcApplication::GetInstance().GetConfig().Load("zookeeperport");
-  std::string connstr = host + ":" + port; // 拼接连接字符串
-
-  /*
-  zookeeper_mt：多线程版本
-  ZooKeeper的API客户端程序提供了三个线程：
-  1. API调用线程
-  2. 网络I/O线程（使用pthread_create和poll）
-  3. watcher回调线程（使用pthread_create）
-  */
-
-  // 使用zookeeper_init初始化一个ZooKeeper客户端对象，异步建立与服务器的连接
-  m_zhandle = zookeeper_init(connstr.c_str(), global_watcher, 6000, nullptr,
-                             nullptr, 0);
-  if (nullptr == m_zhandle) { // 初始化失败
-    LOG(ERROR) << "zookeeper_init error";
-    exit(EXIT_FAILURE); // 退出程序
-  }
-
-  // 等待连接成功
-  std::unique_lock<std::mutex> lock(cv_mutex);
-  cv.wait(lock, [] { return is_connected; }); // 阻塞等待，直到连接成功
-  LOG(INFO) << "zookeeper_init success";      // 记录日志，表示连接成功
+std::expected<void, hxrpc::RpcError> ZkClient::Start() {
+  const auto host = hxrpcApplication::GetConfig().Load("discovery.zookeeper.host");
+  const auto port = hxrpcApplication::GetConfig().Load("discovery.zookeeper.port");
+  return Start(hxrpc::Endpoint{host, static_cast<std::uint16_t>(std::stoi(port))});
 }
 
-// 创建ZooKeeper节点
-void ZkClient::Create(const char *path, const char *data, int datalen,
-                      int state) {
-  char path_buffer[128]; // 用于存储创建的节点路径
-  int bufferlen = sizeof(path_buffer);
+std::expected<void, hxrpc::RpcError>
+ZkClient::Start(const hxrpc::Endpoint &endpoint) {
+  const std::string address = endpoint.ToString();
 
-  // 检查节点是否已经存在
-  int flag = zoo_exists(m_zhandle, path, 0, nullptr);
-  if (flag == ZNONODE) { // 如果节点不存在
-    // 创建指定的ZooKeeper节点
-    flag = zoo_create(m_zhandle, path, data, datalen, &ZOO_OPEN_ACL_UNSAFE,
-                      state, path_buffer, bufferlen);
-    if (flag == ZOK) { // 创建成功
-      LOG(INFO) << "znode create success... path:" << path;
-    } else { // 创建失败
-      LOG(ERROR) << "znode create failed... path:" << path;
-      exit(EXIT_FAILURE); // 退出程序
+  {
+    std::lock_guard<std::mutex> lock(g_connection_mutex);
+    g_connected = false;
+  }
+
+  handle_ = zookeeper_init(address.c_str(), GlobalWatcher, 6000, nullptr, nullptr, 0);
+  if (handle_ == nullptr) {
+    return std::unexpected(hxrpc::RpcError{
+        hxrpc::RpcStatusCode::kDiscoveryError, "zookeeper_init failed"});
+  }
+
+  std::unique_lock<std::mutex> lock(g_connection_mutex);
+  g_connection_cv.wait(lock, [] { return g_connected; });
+  return {};
+}
+
+std::expected<void, hxrpc::RpcError>
+ZkClient::CreateNode(const char *path, const char *data, int datalen, int flags) {
+  char path_buffer[512] = {};
+  constexpr int buffer_length = sizeof(path_buffer);
+
+  const int exists_result = zoo_exists(handle_, path, 0, nullptr);
+  if (exists_result == ZOK) {
+    return {};
+  }
+  if (exists_result != ZNONODE) {
+    return std::unexpected(MakeZkError(hxrpc::RpcStatusCode::kDiscoveryError,
+                                       "zoo_exists failed"));
+  }
+
+  const int create_result =
+      zoo_create(handle_, path, data, datalen, &ZOO_OPEN_ACL_UNSAFE, flags,
+                 path_buffer, buffer_length);
+  if (create_result != ZOK) {
+    return std::unexpected(MakeZkError(hxrpc::RpcStatusCode::kDiscoveryError,
+                                       "zoo_create failed"));
+  }
+  return {};
+}
+
+std::expected<void, hxrpc::RpcError> ZkClient::EnsurePath(const char *path) {
+  if (std::strcmp(path, "/") == 0) {
+    return {};
+  }
+
+  std::string current;
+  const std::string full_path(path);
+  std::size_t cursor = 0;
+  while (cursor < full_path.size()) {
+    const auto next_separator = full_path.find('/', cursor + 1);
+    const auto end = next_separator == std::string::npos ? full_path.size() : next_separator;
+    current = full_path.substr(0, end);
+
+    if (!current.empty()) {
+      if (auto result = CreateNode(current.c_str(), nullptr, 0, 0); !result) {
+        return std::unexpected(result.error());
+      }
     }
+
+    if (next_separator == std::string::npos) {
+      break;
+    }
+    cursor = next_separator;
+  }
+
+  return {};
+}
+
+std::expected<std::string, hxrpc::RpcError>
+ZkClient::GetData(const char *path) const {
+  char buffer[512] = {};
+  int length = sizeof(buffer);
+  const int result = zoo_get(handle_, path, 0, buffer, &length, nullptr);
+  if (result != ZOK) {
+    return std::unexpected(MakeZkError(hxrpc::RpcStatusCode::kDiscoveryError,
+                                       "zoo_get failed"));
+  }
+  return std::string(buffer, length);
+}
+
+std::expected<std::vector<std::string>, hxrpc::RpcError>
+ZkClient::GetChildren(const char *path) const {
+  String_vector children;
+  const int result = zoo_get_children(handle_, path, 0, &children);
+  if (result != ZOK) {
+    return std::unexpected(MakeZkError(hxrpc::RpcStatusCode::kDiscoveryError,
+                                       "zoo_get_children failed"));
+  }
+
+  std::vector<std::string> values;
+  values.reserve(children.count);
+  for (int index = 0; index < children.count; ++index) {
+    values.emplace_back(children.data[index]);
+  }
+
+  deallocate_String_vector(&children);
+  return values;
+}
+
+namespace {
+
+void ChildWatcher(zhandle_t *handle, int type, int state, const char *path,
+                  void *watcher_ctx) {
+  (void)handle;
+  (void)state;
+
+  if (watcher_ctx == nullptr) {
+    return;
+  }
+
+  auto *watch = static_cast<ZkClient::ChildWatch *>(watcher_ctx);
+  if (type == ZOO_CHILD_EVENT || type == ZOO_CREATED_EVENT ||
+      type == ZOO_DELETED_EVENT) {
+    watch->callback(path != nullptr ? std::string(path) : watch->path);
   }
 }
 
-// 获取ZooKeeper节点的数据
-std::string ZkClient::GetData(const char *path) {
-  char buf[64]; // 用于存储节点数据
-  int bufferlen = sizeof(buf);
+} // namespace
 
-  // 获取指定节点的数据
-  int flag = zoo_get(m_zhandle, path, 0, buf, &bufferlen, nullptr);
-  if (flag != ZOK) { // 获取失败
-    LOG(ERROR) << "zoo_get error";
-    return "";  // 返回空字符串
-  } else {      // 获取成功
-    return buf; // 返回节点数据
+std::expected<std::vector<std::string>, hxrpc::RpcError>
+ZkClient::GetChildrenWatched(const std::string &path,
+                             std::function<void(const std::string &)> on_change) {
+  auto watch = std::make_shared<ChildWatch>();
+  watch->path = path;
+  watch->callback = std::move(on_change);
+
+  String_vector children;
+  const int result =
+      zoo_wget_children(handle_, path.c_str(), ChildWatcher, watch.get(), &children);
+  if (result != ZOK) {
+    return std::unexpected(MakeZkError(hxrpc::RpcStatusCode::kDiscoveryError,
+                                       "zoo_wget_children failed"));
   }
-  return ""; // 默认返回空字符串
+
+  child_watches_.push_back(watch);
+
+  std::vector<std::string> values;
+  values.reserve(children.count);
+  for (int index = 0; index < children.count; ++index) {
+    values.emplace_back(children.data[index]);
+  }
+
+  deallocate_String_vector(&children);
+  return values;
 }

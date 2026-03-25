@@ -1,73 +1,305 @@
 # hxrpc
 
-一个基于 C++20 协程的轻量级 RPC 框架。
+一个面向教学与工程演进的、基于 `epoll + C++20 coroutine + protobuf` 的轻量级 C++ RPC 框架。
 
-## 目前的实现
+当前版本已经去掉旧的 bridge facade，对外只保留两类核心入口：
 
-* **网络 I/O**: 底层依然是标准的 epoll。在 Reactor 模型基础上，把 socket 的可读/可写事件挂载到协程的 `promise_type` 上，规避了线程池模型的线程切换开销。
-* **粘包处理**: 简单的自定义 TLV 格式。应用层维护了一个 RingBuffer，按 Length 字段切包，处理 TCP 字节流常见的半包和粘包问题。
-* **序列化与内存分配**: 序列化用的 Protobuf。考虑到 RPC 调用非常频繁，为了减少堆内存分配带来的系统调用开销和内存碎片，给 Protobuf 的 Message 对象加了一个简单的对象池（Object Pool）来做循环复用。
-* **服务注册发现**: 强依赖 Zookeeper，靠 ZK 的 watcher 机制做基础的服务节点注册和宕机剔除。
+- `RpcServer`
+- `RpcClient`
 
-## 目前的缺陷
+框架目标是把网络、传输、发现、分发、序列化这些能力分层拆清楚，再在这套骨架上逐步演进协程、对象池、动态发现和服务治理。
 
-1. **内核数据拷贝开销**: 目前的读写还是用的标准 `read/write` 系统调用。数据从网卡到内核协议栈，再拷贝到用户态 buffer，最后 protobuf 反序列化，中间的多次内存拷贝开销完全没省掉。
-2. **服务治理太糙**: 路由只写了最基础的随机和轮询。没有平滑负载均衡（比如 P2C），也没有做动态熔断和限流。一旦遇到突发流量打满，节点基本上只能等死。
-3. **定时器性能差**: 目前 RPC 的超时重试机制，用的是很基础的定时器逻辑。如果高并发下出现大面积超时，遍历和清理定时任务的开销会把 CPU 吃满。
-4. **无观测性**: 没打点，也没接入 trace 系统，如果跑在分布式环境里出了超时或者丢包，链路根本没法查。
+## 核心结构
 
-## 后续演进
+### 服务端
 
-如果要继续把这个框架往实用级方向推，下一步重点要在 I/O 栈和高性能机制上动刀：
+- `Reactor`
+  - 负责 `epoll` 生命周期和 fd 事件分发
+- `ConnectionManager`
+  - 负责监听、accept、连接缓冲、半包/粘包处理、发送与关闭
+- `RpcDispatcher`
+  - 负责解码请求、定位 service/method、反序列化、调用 protobuf service、编码响应
+- `RpcServer`
+  - 负责装配上述组件并对外暴露服务注册与运行入口
 
-* **引入 RDMA (Kernel Bypass)**: 传统的 TCP/IP 协议栈延迟太高，打算在传输层做个抽象接口，除了现在的 TCP Socket，增加对 RDMA（通过 `libibverbs`）的支持。直接绕过操作系统内核实现网卡到内存的读写，把内部 RPC 通信延迟压到微秒级。
-* **替换底层 I/O 引擎**: 考虑逐步把底层的 epoll 替换成 `io_uring`，进一步压榨系统调用的性能；同时在特定场景看能不能引入 `sendfile` 做零拷贝。
-* **重构定时器（时间轮算法）**: 把现在的超时控制模块重构成层级时间轮（Hierarchical Timing Wheels），把海量连接的心跳保活和超时任务的增删时间复杂度降到 O(1)。
+### 客户端
+
+- `ServiceResolver`
+  - 负责解析服务实例
+- `ClientTransport`
+  - 负责请求-响应传输
+- `Serializer`
+  - 负责业务对象与 payload 之间的转换
+- `RpcClient`
+  - 负责把发现、序列化、协议编解码、传输组合成一次完整 RPC 调用
+
+## 当前能力
+
+- 基于 `epoll` 的服务端 `Reactor`
+- 非阻塞 socket 与长度帧协议
+- 半包 / 粘包处理
+- `protobuf` 业务对象序列化
+- 同步 RPC 调用
+- 基于 `C++20 coroutine` 的客户端异步调用接口
+- `Zookeeper` 注册与发现
+- 基于 `watcher + 本地缓存` 的动态服务实例刷新
+- `Protobuf Message` 对象池复用
+
+## 协议格式
+
+请求与响应统一采用如下格式：
+
+```text
++----------------------+----------------------+----------------------+------------------+
+| 4B total_length      | 4B header_length     | protobuf header      | payload          |
++----------------------+----------------------+----------------------+------------------+
+```
+
+请求头包含：
+
+- `request_id`
+- `service_name`
+- `method_name`
+- `args_size`
+- `meta_size`
+
+响应头包含：
+
+- `request_id`
+- `status_code`
+- `error_text`
+- `payload_size`
+
+其中请求 `metadata` 已经进入调用语义，会跟随一次调用一起编码、传输并在服务端通过 `hxrpccontroller` 暴露给业务实现。
+
+## 配置模型
+
+启动时配置会被装配成强类型对象：
+
+- `ServerConfig`
+- `ClientConfig`
+- `DiscoveryConfig`
+- `ReactorConfig`
+- `SerializationConfig`
+- `CallOptions`
+
+静态发现示例：
+
+```yaml
+client:
+  rpc_timeout_ms: 1500
+
+discovery:
+  backend: static
+  services:
+    UserServiceRpc.Login: 127.0.0.1:8000
+    UserServiceRpc.Register: 127.0.0.1:8000
+```
+
+Zookeeper 发现示例：
+
+```yaml
+client:
+  rpc_timeout_ms: 1500
+
+discovery:
+  backend: zookeeper
+  zookeeper:
+    host: 127.0.0.1
+    port: 2181
+```
+
+## 使用方式
+
+### 服务端
+
+```cpp
+auto config = hxrpc::SettingsLoader::LoadServerConfig(hxrpcApplication::GetConfig());
+hxrpc::RpcServer server(config.value());
+server.RegisterService(new UserService());
+server.Run();
+```
+
+### 客户端同步调用
+
+```cpp
+auto config = hxrpc::SettingsLoader::LoadClientConfig(hxrpcApplication::GetConfig());
+hxrpc::RpcClient client(config.value());
+
+Kuser::LoginRequest request;
+Kuser::LoginResponse response;
+hxrpc::CallOptions options = config->call_options;
+options.metadata = "trace_id=sync-demo";
+
+const auto* method = Kuser::UserServiceRpc::descriptor()->FindMethodByName("Login");
+auto result = client.Invoke(method, request, response, options);
+```
+
+### 客户端协程调用
+
+```cpp
+hxrpc::Task<std::expected<void, hxrpc::RpcError>> Call(
+    hxrpc::RpcClient& client,
+    const google::protobuf::MethodDescriptor* method,
+    const Kuser::LoginRequest& request,
+    Kuser::LoginResponse& response) {
+  co_return co_await client.InvokeAsync(method, request, response);
+}
+```
+
+## 项目结构
+
+```text
+src/
+  include/
+    async_runtime.h
+    client_transport.h
+    codec.h
+    connection_manager.h
+    controller.h
+    message_pool.h
+    reactor.h
+    rpc_client.h
+    rpc_dispatcher.h
+    rpc_server.h
+    serializer.h
+    service_discovery.h
+    service_registry.h
+    settings.h
+    task.h
+    types.h
+    zookeeperutil.h
+```
 
 ## 编译与运行
 
+### 命令速查
+
+```bash
+# 配置
+cmake -S . -B build
+
+# 编译
+cmake --build build -j$(nproc)
+
+# 跑全部测试
+cd build && ctest --output-on-failure
+
+# 启动 benchmark server
+./bin/benchmark_server -i ./server.yaml
+
+# 跑默认 benchmark
+./bin/benchmark_client -i ./server.yaml
+
+# 跑自定义 benchmark
+./bin/benchmark_client -i ./server.yaml --concurrency 1024 --requests 2 --timeout-ms 3000
+```
+
 ### 环境
 
-* **OS**: Linux
-* **Compiler**: GCC 11+ / Clang 14+ (必须支持 C++ 23 编译标准)
-* **Dependencies**: CMake (3.20+), Protobuf, Zookeeper C Client, muduo
-* 请自行安装 Zookeeper 服务。
-* 请自行编译 `muduo` 库。
+- Linux
+- GCC 13+ / Clang 16+
+- CMake 3.20+
+- Protobuf
+- Zookeeper C Client
 
 ### 编译
 
 ```bash
-git clone https://github.com/hxaxd/hxrpc.git
+git clone <your-repo>
 cd hxrpc
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
+cmake -S . -B build
+cmake --build build -j$(nproc)
 ```
 
-编译成功后，可执行文件将生成在项目的 `bin/` 目录下。
-
-### Benchmark
-
-* 我们在 `2C2G` 硬件规格下开展了极限基准压测
-    * 可稳定支撑 **1w+ 活跃并发连接**。
-    * 较低并发数下, 单机 QPS 达到 **2.5万+**，且 P99 延迟低于 12ms。
+### 运行服务端与 benchmark 客户端
 
 ```bash
-# 确保在项目根目录下
-chmod +x benchmark.sh
-
-# 修改 test.conf 中的压测参数
-
-./benchmark.sh
+./bin/benchmark_server -i ./server.yaml
+./bin/benchmark_client -i ./server.yaml
 ```
 
-#### 性能测试方法
+也可以覆盖 benchmark 参数：
 
-空载压测方案：
+```bash
+./bin/benchmark_client -i ./server.yaml --concurrency 256 --requests 8 --timeout-ms 1500
+```
 
-1. **服务端**：
-   服务端接收到 `Login` 请求后，不执行任何数据库操作或磁盘 I/O，而是直接在内存中构建 Protobuf 响应并立即 `done->Run()` 返回。
-2. **客户端复用数据包**：
-   压测客户端在循环外预先完成请求的 Protobuf 序列化，并构建好带有包头长度的物理字节流。在压测中，通过 `send` 直接拷贝内存。
-3. **无锁统计**：
-   开启 `TCP_NODELAY`。统计 QPS 和延迟时，采用 Thread-Local 机制在各线程内独立计数，最终在主线程统一汇集。
+`benchmark_client` 会从 `server.yaml` 读取服务端地址与发现方式，
+但客户端自己的 benchmark 参数仍然写在代码里。
+
+benchmark 结果会额外写入：
+
+- `logs/benchmark_report_<timestamp>.json`
+
+报告包含：
+
+- `success_rate`
+- `avg_latency_ms`
+- `p95_latency_ms`
+- `p99_latency_ms`
+
+## 日志配置
+
+当前日志支持：
+
+- 异步写入
+- 同时输出到 `stderr`
+- 同时输出到配置文件路径
+
+示例：
+
+```yaml
+client:
+  rpc_timeout_ms: 1500
+
+server:
+  host: 127.0.0.1
+  port: 8000
+
+discovery:
+  backend: static
+  zookeeper:
+    host: 127.0.0.1
+    port: 2181
+  services:
+    UserServiceRpc.Login: 127.0.0.1:8000
+    UserServiceRpc.Register: 127.0.0.1:8000
+
+logging:
+  async: true
+  to_stderr: true
+  path: logs/benchmark_server.log
+```
+
+## 测试
+
+当前测试覆盖：
+
+- 配置解析
+- 协议编解码
+- 静态发现与 ZK 路径约定
+- dispatcher 业务分发
+- 真实 client/server 端到端调用
+- metadata 透传
+- MessagePool 复用
+- 协程客户端调用
+- 失败路径
+- 半包 / 粘包边界行为
+
+```bash
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+## 当前限制
+
+当前版本仍然刻意保持简单：
+
+- 客户端仍是“一请求一连接”，尚未引入连接池
+- 服务端业务处理仍基于 protobuf 同步回调，不是 coroutine-native handler
+- 暂未实现 retry、熔断、限流、metrics、trace
+- 对象池目前只覆盖 `Protobuf Message`
+
+但这几类能力都已经有明确的插入位置，不需要推翻核心结构。

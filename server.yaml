@@ -1,0 +1,17 @@
+server:
+  host: 127.0.0.1
+  port: 8000
+
+discovery:
+  backend: static
+  services:
+    UserServiceRpc.Login: 127.0.0.1:8000
+    UserServiceRpc.Register: 127.0.0.1:8000
+  zookeeper:
+    host: 127.0.0.1
+    port: 2181
+
+logging:
+  async: true
+  to_stderr: true
+  path: logs/benchmark_server.log

@@ -1,13 +1,22 @@
-#ifndef _hxrpcconfig_h
-#define _hxrpcconfig_h
+#ifndef HXRPC_CONFIG_H
+#define HXRPC_CONFIG_H
+
+#include <expected>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+
 class hxrpcconfig {
 public:
-  void LoadConfigFile(const char *config_file); // 加载配置文件
-  std::string Load(const std::string &key);     // 查找key对应的value
+  [[nodiscard]] std::expected<void, std::string>
+  LoadConfigFile(const char *config_file);
+  [[nodiscard]] std::string Load(std::string_view key) const;
+  [[nodiscard]] const std::unordered_map<std::string, std::string> &Entries() const;
+
+  static void Trim(std::string &value);
+
 private:
-  std::unordered_map<std::string, std::string> config_map;
-  void Trim(std::string &read_buf); // 去掉字符串前后的空格
+  std::unordered_map<std::string, std::string> config_map_;
 };
+
 #endif
