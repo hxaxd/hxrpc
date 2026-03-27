@@ -30,7 +30,9 @@ Task<std::expected<void, RpcError>>
 RpcClient::InvokeAsync(const google::protobuf::MethodDescriptor *method,
                        const google::protobuf::Message &request,
                        google::protobuf::Message &response) {
-  co_return co_await InvokeAsync(method, request, response, config_.call_options);
+  auto invoke_task = InvokeAsync(method, request, response, config_.call_options);
+  auto invoke_result = co_await invoke_task;
+  co_return invoke_result;
 }
 
 Task<std::expected<void, RpcError>>
@@ -71,9 +73,10 @@ RpcClient::InvokeAsync(const google::protobuf::MethodDescriptor *method,
     co_return std::unexpected(frame_result.error());
   }
 
-  auto response_frame =
-      co_await transport_->RoundTripAsync(instance_result->endpoint,
-                                          frame_result.value(), options);
+  auto round_trip_task =
+      transport_->RoundTripAsync(instance_result->endpoint, frame_result.value(),
+                                 options);
+  auto response_frame = co_await round_trip_task;
   if (!response_frame) {
     LOG(Warn) << "client round trip failed service=" << service_name
               << " method=" << method_name

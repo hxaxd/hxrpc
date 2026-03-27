@@ -13,7 +13,20 @@ AsyncRuntime &AsyncRuntime::Instance() {
 }
 
 AsyncRuntime::FdAwaiter::FdAwaiter(int fd, std::uint32_t events, int timeout_ms)
-    : fd_(fd), events_(events), timeout_ms_(timeout_ms) {}
+    : fd_(fd), events_(events), timeout_ms_(timeout_ms),
+      state_(std::make_shared<WaitState>()) {}
+
+AsyncRuntime::FdAwaiter::~FdAwaiter() {
+  if (!state_) {
+    return;
+  }
+  state_->cancelled.store(true, std::memory_order_relaxed);
+  const auto token = state_->token.load(std::memory_order_acquire);
+  const bool completed = state_->completed.load(std::memory_order_acquire);
+  if (token != 0 && !completed) {
+    AsyncRuntime::Instance().Cancel(token);
+  }
+}
 
 void AsyncRuntime::FdAwaiter::await_suspend(std::coroutine_handle<> handle) {
   auto registration = std::make_shared<WaitRegistration>();
@@ -23,13 +36,46 @@ void AsyncRuntime::FdAwaiter::await_suspend(std::coroutine_handle<> handle) {
   registration->deadline =
       std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms_);
   registration->handle = handle;
-  registration->awaiter = this;
+  registration->state = state_;
   AsyncRuntime::Instance().Enqueue(std::move(registration));
 }
 
 AsyncRuntime::FdAwaiter AsyncRuntime::WaitFor(int fd, std::uint32_t events,
                                               int timeout_ms) {
   return FdAwaiter(fd, events, timeout_ms);
+}
+
+void AsyncRuntime::Cancel(std::uint64_t token) {
+  if (token == 0) {
+    return;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(pending_mutex_);
+    for (auto it = pending_.begin(); it != pending_.end();) {
+      if ((*it)->token == token) {
+        if ((*it)->state) {
+          (*it)->state->completed.store(true, std::memory_order_release);
+          (*it)->state->token.store(0, std::memory_order_release);
+        }
+        it = pending_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
+  std::lock_guard<std::mutex> lock(registrations_mutex_);
+  const auto it = registrations_.find(token);
+  if (it == registrations_.end()) {
+    return;
+  }
+  (void)::epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, it->second->fd, nullptr);
+  if (it->second->state) {
+    it->second->state->completed.store(true, std::memory_order_release);
+    it->second->state->token.store(0, std::memory_order_release);
+  }
+  registrations_.erase(it);
 }
 
 AsyncRuntime::AsyncRuntime() {
@@ -72,6 +118,9 @@ void AsyncRuntime::Enqueue(std::shared_ptr<WaitRegistration> registration) {
   {
     std::lock_guard<std::mutex> lock(pending_mutex_);
     registration->token = next_token_++;
+    if (registration->state) {
+      registration->state->token.store(registration->token, std::memory_order_release);
+    }
     pending_.push_back(std::move(registration));
   }
   WakeLoop();
@@ -113,7 +162,17 @@ void AsyncRuntime::RegisterPending() {
 
 void AsyncRuntime::ResumeReady(std::shared_ptr<WaitRegistration> registration,
                                bool timed_out) {
-  registration->awaiter->timed_out_ = timed_out;
+  if (!registration->state) {
+    return;
+  }
+  if (registration->state->cancelled.load(std::memory_order_acquire)) {
+    registration->state->completed.store(true, std::memory_order_release);
+    registration->state->token.store(0, std::memory_order_release);
+    return;
+  }
+  registration->state->timed_out.store(timed_out, std::memory_order_release);
+  registration->state->completed.store(true, std::memory_order_release);
+  registration->state->token.store(0, std::memory_order_release);
   registration->handle.resume();
 }
 

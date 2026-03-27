@@ -1,6 +1,7 @@
 #ifndef HXRPC_ASYNC_RUNTIME_H
 #define HXRPC_ASYNC_RUNTIME_H
 
+#include <atomic>
 #include <chrono>
 #include <coroutine>
 #include <cstdint>
@@ -24,21 +25,33 @@ public:
   class FdAwaiter {
   public:
     FdAwaiter(int fd, std::uint32_t events, int timeout_ms);
+    ~FdAwaiter();
 
     [[nodiscard]] bool await_ready() const noexcept { return false; }
     void await_suspend(std::coroutine_handle<> handle);
-    [[nodiscard]] bool await_resume() const noexcept { return !timed_out_; }
+    [[nodiscard]] bool await_resume() const noexcept {
+      return state_ != nullptr &&
+             !state_->timed_out.load(std::memory_order_acquire);
+    }
 
   private:
     friend class AsyncRuntime;
 
+    struct WaitState {
+      std::atomic<bool> timed_out{false};
+      std::atomic<bool> completed{false};
+      std::atomic<bool> cancelled{false};
+      std::atomic<std::uint64_t> token{0};
+    };
+
     int fd_;
     std::uint32_t events_;
     int timeout_ms_;
-    bool timed_out_{false};
+    std::shared_ptr<WaitState> state_;
   };
 
   [[nodiscard]] FdAwaiter WaitFor(int fd, std::uint32_t events, int timeout_ms);
+  void Cancel(std::uint64_t token);
 
 private:
   struct WaitRegistration {
@@ -48,7 +61,7 @@ private:
     int timeout_ms{0};
     std::chrono::steady_clock::time_point deadline{};
     std::coroutine_handle<> handle{};
-    FdAwaiter *awaiter{nullptr};
+    std::shared_ptr<FdAwaiter::WaitState> state;
   };
 
   AsyncRuntime();

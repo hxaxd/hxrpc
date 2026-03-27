@@ -4,9 +4,12 @@
 #include "task.h"
 #include "types.h"
 #include <expected>
+#include <mutex>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <vector>
 
 namespace hxrpc {
 
@@ -23,6 +26,7 @@ public:
 
 class TcpClientTransport final : public ClientTransport {
 public:
+  ~TcpClientTransport() override;
   [[nodiscard]] std::expected<std::string, RpcError>
   RoundTrip(const Endpoint &endpoint, std::string_view frame,
             const CallOptions &options) override;
@@ -47,6 +51,20 @@ private:
   ReceiveFrame(int socket_fd) const;
   [[nodiscard]] Task<std::expected<std::string, RpcError>>
   ReceiveFrameAsync(int socket_fd, int timeout_ms);
+
+  [[nodiscard]] static std::string EndpointKey(const Endpoint &endpoint);
+  [[nodiscard]] std::expected<void, RpcError>
+  ConfigureSocket(int socket_fd, const CallOptions &options) const;
+  [[nodiscard]] std::expected<int, RpcError>
+  BorrowConnection(const Endpoint &endpoint, const CallOptions &options);
+  [[nodiscard]] Task<std::expected<int, RpcError>>
+  BorrowConnectionAsync(const Endpoint &endpoint, const CallOptions &options);
+  void ReturnConnection(const Endpoint &endpoint, int socket_fd);
+  static void CloseSocket(int socket_fd);
+
+  std::mutex pool_mutex_;
+  std::unordered_map<std::string, std::vector<int>> idle_pool_;
+  static constexpr std::size_t kMaxIdlePerEndpoint = 8;
 };
 
 class ClientTransportFactory {

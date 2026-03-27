@@ -26,22 +26,52 @@ std::string BuildSystemError(std::string_view prefix) {
   return std::string(prefix) + ": " + std::strerror(errno);
 }
 
+bool SetSocketBlockingMode(int socket_fd, bool blocking) {
+  const int flags = ::fcntl(socket_fd, F_GETFL, 0);
+  if (flags < 0) {
+    return false;
+  }
+  const int next_flags = blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK);
+  return ::fcntl(socket_fd, F_SETFL, next_flags) == 0;
+}
+
 } // namespace
 
 namespace hxrpc {
 
+TcpClientTransport::~TcpClientTransport() {
+  std::unordered_map<std::string, std::vector<int>> pending_close;
+  {
+    std::lock_guard<std::mutex> lock(pool_mutex_);
+    pending_close.swap(idle_pool_);
+  }
+  for (auto &[_, sockets] : pending_close) {
+    for (const int fd : sockets) {
+      CloseSocket(fd);
+    }
+  }
+}
+
 std::expected<std::string, RpcError>
 TcpClientTransport::RoundTrip(const Endpoint &endpoint, std::string_view frame,
                               const CallOptions &options) {
-  auto connect_result = ConnectTo(endpoint, options);
-  if (!connect_result) {
-    return std::unexpected(connect_result.error());
+  auto connection_result = BorrowConnection(endpoint, options);
+  if (!connection_result) {
+    return std::unexpected(connection_result.error());
   }
-  ScopedFd fd(connect_result.value());
-  if (auto send_result = SendAll(connect_result.value(), frame); !send_result) {
+  const int socket_fd = connection_result.value();
+
+  if (auto send_result = SendAll(socket_fd, frame); !send_result) {
+    CloseSocket(socket_fd);
     return std::unexpected(send_result.error());
   }
-  return ReceiveFrame(connect_result.value());
+  auto frame_result = ReceiveFrame(socket_fd);
+  if (!frame_result) {
+    CloseSocket(socket_fd);
+    return std::unexpected(frame_result.error());
+  }
+  ReturnConnection(endpoint, socket_fd);
+  return frame_result;
 }
 
 Task<std::expected<std::string, RpcError>>
@@ -68,11 +98,10 @@ TcpClientTransport::ConnectTo(const Endpoint &endpoint,
         RpcError{RpcStatusCode::kNetworkError, "endpoint host is not a valid IPv4 address"});
   }
 
-  timeval timeout{};
-  timeout.tv_sec = options.timeout_ms / 1000;
-  timeout.tv_usec = (options.timeout_ms % 1000) * 1000;
-  (void)::setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-  (void)::setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+  if (auto configured = ConfigureSocket(client_fd, options); !configured) {
+    ::close(client_fd);
+    return std::unexpected(configured.error());
+  }
 
   if (::connect(client_fd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) < 0) {
     ::close(client_fd);
@@ -98,6 +127,11 @@ TcpClientTransport::ConnectToAsync(const Endpoint &endpoint,
         RpcError{RpcStatusCode::kNetworkError, BuildSystemError("fcntl failed")});
   }
 
+  if (auto configured = ConfigureSocket(client_fd, options); !configured) {
+    ::close(client_fd);
+    co_return std::unexpected(configured.error());
+  }
+
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_port = htons(endpoint.port);
@@ -109,6 +143,7 @@ TcpClientTransport::ConnectToAsync(const Endpoint &endpoint,
 
   const int connect_result =
       ::connect(client_fd, reinterpret_cast<sockaddr *>(&address), sizeof(address));
+
   if (connect_result == 0) {
     co_return client_fd;
   }
@@ -275,9 +310,10 @@ TcpClientTransport::ReceiveFrame(int socket_fd) const {
 Task<std::expected<std::string, RpcError>>
 TcpClientTransport::ReceiveFrameAsync(int socket_fd, int timeout_ms) {
   std::uint32_t network_frame_size = 0;
-  if (auto recv_result =
-          co_await RecvAllAsync(socket_fd, &network_frame_size, sizeof(network_frame_size),
-                                timeout_ms);
+  auto recv_prefix_task =
+      RecvAllAsync(socket_fd, &network_frame_size, sizeof(network_frame_size),
+                   timeout_ms);
+  if (auto recv_result = co_await recv_prefix_task;
       !recv_result) {
     co_return std::unexpected(recv_result.error());
   }
@@ -289,9 +325,10 @@ TcpClientTransport::ReceiveFrameAsync(int socket_fd, int timeout_ms) {
   }
   std::string frame(sizeof(network_frame_size) + frame_size, '\0');
   std::memcpy(frame.data(), &network_frame_size, sizeof(network_frame_size));
-  if (auto recv_result = co_await RecvAllAsync(
-          socket_fd, frame.data() + sizeof(network_frame_size), frame_size,
-          timeout_ms);
+  auto recv_body_task =
+      RecvAllAsync(socket_fd, frame.data() + sizeof(network_frame_size), frame_size,
+                   timeout_ms);
+  if (auto recv_result = co_await recv_body_task;
       !recv_result) {
     co_return std::unexpected(recv_result.error());
   }
@@ -300,6 +337,102 @@ TcpClientTransport::ReceiveFrameAsync(int socket_fd, int timeout_ms) {
 
 std::shared_ptr<ClientTransport> ClientTransportFactory::Create() {
   return std::make_shared<TcpClientTransport>();
+}
+
+std::string TcpClientTransport::EndpointKey(const Endpoint &endpoint) {
+  return endpoint.ToString();
+}
+
+std::expected<void, RpcError>
+TcpClientTransport::ConfigureSocket(int socket_fd,
+                                    const CallOptions &options) const {
+  timeval timeout{};
+  timeout.tv_sec = options.timeout_ms / 1000;
+  timeout.tv_usec = (options.timeout_ms % 1000) * 1000;
+  if (::setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout,
+                   sizeof(timeout)) < 0) {
+    return std::unexpected(RpcError{RpcStatusCode::kNetworkError,
+                                    BuildSystemError("setsockopt(RCVTIMEO) failed")});
+  }
+  if (::setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout,
+                   sizeof(timeout)) < 0) {
+    return std::unexpected(RpcError{RpcStatusCode::kNetworkError,
+                                    BuildSystemError("setsockopt(SNDTIMEO) failed")});
+  }
+  return {};
+}
+
+std::expected<int, RpcError>
+TcpClientTransport::BorrowConnection(const Endpoint &endpoint,
+                                     const CallOptions &options) {
+  const auto key = EndpointKey(endpoint);
+  {
+    std::lock_guard<std::mutex> lock(pool_mutex_);
+    auto it = idle_pool_.find(key);
+    if (it != idle_pool_.end() && !it->second.empty()) {
+      const int socket_fd = it->second.back();
+      it->second.pop_back();
+      if (it->second.empty()) {
+        idle_pool_.erase(it);
+      }
+      if (!SetSocketBlockingMode(socket_fd, true)) {
+        CloseSocket(socket_fd);
+        return ConnectTo(endpoint, options);
+      }
+      if (auto configured = ConfigureSocket(socket_fd, options); configured) {
+        return socket_fd;
+      }
+      CloseSocket(socket_fd);
+    }
+  }
+  return ConnectTo(endpoint, options);
+}
+
+Task<std::expected<int, RpcError>>
+TcpClientTransport::BorrowConnectionAsync(const Endpoint &endpoint,
+                                          const CallOptions &options) {
+  const auto key = EndpointKey(endpoint);
+  {
+    std::lock_guard<std::mutex> lock(pool_mutex_);
+    auto it = idle_pool_.find(key);
+    if (it != idle_pool_.end() && !it->second.empty()) {
+      const int socket_fd = it->second.back();
+      it->second.pop_back();
+      if (it->second.empty()) {
+        idle_pool_.erase(it);
+      }
+      if (!SetSocketBlockingMode(socket_fd, false)) {
+        CloseSocket(socket_fd);
+        auto fallback_connect_task = ConnectToAsync(endpoint, options);
+        auto fallback_connect_result = co_await fallback_connect_task;
+        co_return fallback_connect_result;
+      }
+      if (auto configured = ConfigureSocket(socket_fd, options); configured) {
+        co_return socket_fd;
+      }
+      CloseSocket(socket_fd);
+    }
+  }
+  auto connect_task = ConnectToAsync(endpoint, options);
+  auto connect_result = co_await connect_task;
+  co_return connect_result;
+}
+
+void TcpClientTransport::ReturnConnection(const Endpoint &endpoint, int socket_fd) {
+  const auto key = EndpointKey(endpoint);
+  std::lock_guard<std::mutex> lock(pool_mutex_);
+  auto &bucket = idle_pool_[key];
+  if (bucket.size() >= kMaxIdlePerEndpoint) {
+    CloseSocket(socket_fd);
+    return;
+  }
+  bucket.push_back(socket_fd);
+}
+
+void TcpClientTransport::CloseSocket(int socket_fd) {
+  if (socket_fd >= 0) {
+    ::close(socket_fd);
+  }
 }
 
 } // namespace hxrpc

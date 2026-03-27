@@ -37,3 +37,7 @@ add_test(NAME message_pool_test COMMAND message_pool_test)
 add_executable(coroutine_client_test coroutine_client_test.cc)
 target_link_libraries(coroutine_client_test PRIVATE core benchmark_proto ${LIBS})
 add_test(NAME coroutine_client_test COMMAND coroutine_client_test)
+
+add_executable(client_transport_reuse_test client_transport_reuse_test.cc)
+target_link_libraries(client_transport_reuse_test PRIVATE core ${LIBS})
+add_test(NAME client_transport_reuse_test COMMAND client_transport_reuse_test)

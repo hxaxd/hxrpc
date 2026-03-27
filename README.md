@@ -14,24 +14,24 @@
 ### 服务端
 
 - `Reactor`
-  - 负责 `epoll` 生命周期和 fd 事件分发
+    - 负责 `epoll` 生命周期和 fd 事件分发
 - `ConnectionManager`
-  - 负责监听、accept、连接缓冲、半包/粘包处理、发送与关闭
+    - 负责监听、accept、连接缓冲、半包/粘包处理、发送与关闭
 - `RpcDispatcher`
-  - 负责解码请求、定位 service/method、反序列化、调用 protobuf service、编码响应
+    - 负责解码请求、定位 service/method、反序列化、调用 protobuf service、编码响应
 - `RpcServer`
-  - 负责装配上述组件并对外暴露服务注册与运行入口
+    - 负责装配上述组件并对外暴露服务注册与运行入口
 
 ### 客户端
 
 - `ServiceResolver`
-  - 负责解析服务实例
+    - 负责解析服务实例
 - `ClientTransport`
-  - 负责请求-响应传输
+    - 负责请求-响应传输
 - `Serializer`
-  - 负责业务对象与 payload 之间的转换
+    - 负责业务对象与 payload 之间的转换
 - `RpcClient`
-  - 负责把发现、序列化、协议编解码、传输组合成一次完整 RPC 调用
+    - 负责把发现、序列化、协议编解码、传输组合成一次完整 RPC 调用
 
 ## 当前能力
 
