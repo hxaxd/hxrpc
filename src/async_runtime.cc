@@ -1,22 +1,35 @@
+// src/async_runtime.cc
+// 协程异步运行时实现。
+// 核心设计：
+// 1) epoll + eventfd 构建单线程事件循环；
+// 2) 注册表以 token 跟踪等待项；
+// 3) 统一由 ResumeReady 恢复协程并写入超时状态。
+
 #include "async_runtime.h"
-#include "logger.h"
-#include <cerrno>
-#include <cstring>
+
 #include <sys/eventfd.h>
 #include <unistd.h>
 
+#include <cerrno>
+#include <cstring>
+
+#include "logger.h"
+
 namespace hxrpc {
 
-AsyncRuntime &AsyncRuntime::Instance() {
+AsyncRuntime& AsyncRuntime::Instance() {
   static AsyncRuntime runtime;
   return runtime;
 }
 
 AsyncRuntime::FdAwaiter::FdAwaiter(int fd, std::uint32_t events, int timeout_ms)
-    : fd_(fd), events_(events), timeout_ms_(timeout_ms),
+    : fd_(fd),
+      events_(events),
+      timeout_ms_(timeout_ms),
       state_(std::make_shared<WaitState>()) {}
 
 AsyncRuntime::FdAwaiter::~FdAwaiter() {
+  // 设计原因：awaiter 可能先于事件返回被销毁，需要主动取消避免后续恢复落到无效上下文。
   if (!state_) {
     return;
   }
@@ -29,6 +42,7 @@ AsyncRuntime::FdAwaiter::~FdAwaiter() {
 }
 
 void AsyncRuntime::FdAwaiter::await_suspend(std::coroutine_handle<> handle) {
+  // 将协程句柄与等待参数打包登记，真正的 epoll 注册在运行时线程完成。
   auto registration = std::make_shared<WaitRegistration>();
   registration->fd = fd_;
   registration->events = events_;
@@ -46,6 +60,7 @@ AsyncRuntime::FdAwaiter AsyncRuntime::WaitFor(int fd, std::uint32_t events,
 }
 
 void AsyncRuntime::Cancel(std::uint64_t token) {
+  // 错误语义：token 为 0 或未命中时直接返回，保证取消接口幂等。
   if (token == 0) {
     return;
   }
@@ -79,10 +94,12 @@ void AsyncRuntime::Cancel(std::uint64_t token) {
 }
 
 AsyncRuntime::AsyncRuntime() {
+  // 初始化运行时基础设施：epoll 用于事件多路复用，eventfd 用于跨线程唤醒。
   epoll_fd_ = ::epoll_create1(0);
   wake_fd_ = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
   if (epoll_fd_ < 0 || wake_fd_ < 0) {
-    LOG(Error) << "failed to create async runtime fds: " << std::strerror(errno);
+    LOG(Error) << "failed to create async runtime fds: "
+               << std::strerror(errno);
     running_ = false;
     return;
   }
@@ -115,11 +132,13 @@ AsyncRuntime::~AsyncRuntime() {
 }
 
 void AsyncRuntime::Enqueue(std::shared_ptr<WaitRegistration> registration) {
+  // 设计原因：注册动作集中在事件线程执行，可避免调用方线程直接触碰 epoll 造成竞争。
   {
     std::lock_guard<std::mutex> lock(pending_mutex_);
     registration->token = next_token_++;
     if (registration->state) {
-      registration->state->token.store(registration->token, std::memory_order_release);
+      registration->state->token.store(registration->token,
+                                       std::memory_order_release);
     }
     pending_.push_back(std::move(registration));
   }
@@ -141,7 +160,7 @@ void AsyncRuntime::RegisterPending() {
     pending_items.swap(pending_);
   }
 
-  for (auto &registration : pending_items) {
+  for (auto& registration : pending_items) {
     epoll_event event{};
     event.events = registration->events | EPOLLONESHOT;
     event.data.u64 = registration->token;
@@ -150,6 +169,7 @@ void AsyncRuntime::RegisterPending() {
           ::epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, registration->fd, &event) < 0) {
         LOG(Warn) << "async runtime failed to register fd=" << registration->fd
                   << ": " << std::strerror(errno);
+        // 注册失败按超时路径处理：对上层来说都是“未获得可用事件”。
         ResumeReady(registration, true);
         continue;
       }
@@ -162,6 +182,7 @@ void AsyncRuntime::RegisterPending() {
 
 void AsyncRuntime::ResumeReady(std::shared_ptr<WaitRegistration> registration,
                                bool timed_out) {
+  // 设计原因：统一在此写入完成态并恢复协程，降低多分支路径下状态不一致风险。
   if (!registration->state) {
     return;
   }
@@ -177,6 +198,7 @@ void AsyncRuntime::ResumeReady(std::shared_ptr<WaitRegistration> registration,
 }
 
 void AsyncRuntime::ExpireTimedOut() {
+  // 扫描到期等待项并主动摘除 epoll 监听，避免过期句柄长期滞留在注册表中。
   std::vector<std::shared_ptr<WaitRegistration>> expired;
   const auto now = std::chrono::steady_clock::now();
 
@@ -193,12 +215,13 @@ void AsyncRuntime::ExpireTimedOut() {
     }
   }
 
-  for (auto &registration : expired) {
+  for (auto& registration : expired) {
     ResumeReady(registration, true);
   }
 }
 
 void AsyncRuntime::Run() {
+  // 事件循环主流程：注册新等待 -> 等待就绪事件 -> 恢复协程 -> 处理超时。
   std::vector<epoll_event> events(64);
   while (running_) {
     RegisterPending();
@@ -239,4 +262,4 @@ void AsyncRuntime::Run() {
   }
 }
 
-} // namespace hxrpc
+}  // namespace hxrpc

@@ -1,4 +1,12 @@
+// src/logger.cc
+// 日志模块实现。
+// 核心设计：
+// 1) 统一格式化入口，保证 stderr 与文件输出一致；
+// 2) 异步模式通过队列 + 后台线程批量刷盘，降低业务线程阻塞；
+// 3) 同步模式用于故障定位与极简场景。
+
 #include "logger.h"
+
 #include <chrono>
 #include <condition_variable>
 #include <ctime>
@@ -25,7 +33,8 @@ struct LogEntry {
 };
 
 class LoggerImpl {
-public:
+ public:
+  // 启动后台日志线程（异步模式与同步模式共用同一实现，便于统一收尾逻辑）。
   LoggerImpl() : worker_([this]() { Run(); }) {}
 
   ~LoggerImpl() {
@@ -42,7 +51,8 @@ public:
     }
   }
 
-  std::expected<void, std::string> Configure(const LoggerOptions &options) {
+  std::expected<void, std::string> Configure(const LoggerOptions& options) {
+    // 错误语义：目录创建或文件打开失败时返回 unexpected，不抛异常。
     std::lock_guard<std::mutex> lock(mutex_);
 
     std::ofstream next_stream;
@@ -53,7 +63,8 @@ public:
         std::error_code error;
         std::filesystem::create_directories(parent, error);
         if (error) {
-          return std::unexpected("failed to create log directory: " + error.message());
+          return std::unexpected("failed to create log directory: " +
+                                 error.message());
         }
       }
 
@@ -69,14 +80,16 @@ public:
   }
 
   void Write(LogLevel level, std::string message) {
+    // 设计原因：统一在入口处做等级过滤，避免后续路径重复判断。
     std::unique_lock<std::mutex> lock(mutex_);
     if (level < options_.min_level) {
       return;
     }
 
     if (!options_.async_enabled) {
-      const std::string formatted = FormatLine(
-          LogEntry{level, std::chrono::system_clock::now(), std::move(message)});
+      // 同步模式：调用线程直接输出并 flush，换取最即时的可见性。
+      const std::string formatted = FormatLine(LogEntry{
+          level, std::chrono::system_clock::now(), std::move(message)});
       WriteUnlocked(formatted);
       if (file_stream_.is_open()) {
         file_stream_.flush();
@@ -93,15 +106,15 @@ public:
     cv_.notify_one();
   }
 
-private:
-  static constexpr const char *ToString(LogLevel level) {
+ private:
+  static constexpr const char* ToString(LogLevel level) {
     switch (level) {
-    case LogLevel::kInfo:
-      return "INFO";
-    case LogLevel::kWarn:
-      return "WARN";
-    case LogLevel::kError:
-      return "ERROR";
+      case LogLevel::kInfo:
+        return "INFO";
+      case LogLevel::kWarn:
+        return "WARN";
+      case LogLevel::kError:
+        return "ERROR";
     }
     return "UNKNOWN";
   }
@@ -124,6 +137,7 @@ private:
   }
 
   void Run() {
+    // 后台线程循环：定时或被唤醒后批量搬运队列，减少锁竞争与频繁 IO。
     std::vector<LogEntry> batch;
     batch.reserve(256);
 
@@ -148,7 +162,7 @@ private:
     }
   }
 
-  void WriteUnlocked(const std::string &line) {
+  void WriteUnlocked(const std::string& line) {
     if (options_.stderr_enabled) {
       std::cerr << line << std::endl;
     }
@@ -157,9 +171,11 @@ private:
     }
   }
 
-  void WriteBatch(const std::vector<LogEntry> &batch) {
-    for (const auto &entry : batch) {
-      WriteUnlocked(FormatLine(LogEntry{entry.level, entry.timestamp, entry.message}));
+  void WriteBatch(const std::vector<LogEntry>& batch) {
+    // 设计原因：批量写可摊薄系统调用与 flush 成本，提升高并发日志吞吐。
+    for (const auto& entry : batch) {
+      WriteUnlocked(
+          FormatLine(LogEntry{entry.level, entry.timestamp, entry.message}));
     }
     if (file_stream_.is_open()) {
       file_stream_.flush();
@@ -178,14 +194,14 @@ private:
   std::thread worker_;
 };
 
-LoggerImpl &GetImpl() {
+LoggerImpl& GetImpl() {
   static LoggerImpl impl;
   return impl;
 }
 
-} // namespace
+}  // namespace
 
-Logger &Logger::Instance() {
+Logger& Logger::Instance() {
   static Logger logger;
   return logger;
 }
@@ -193,7 +209,8 @@ Logger &Logger::Instance() {
 Logger::Logger() = default;
 Logger::~Logger() = default;
 
-std::expected<void, std::string> Logger::Configure(const LoggerOptions &options) {
+std::expected<void, std::string> Logger::Configure(
+    const LoggerOptions& options) {
   return GetImpl().Configure(options);
 }
 
@@ -203,4 +220,4 @@ void Logger::Write(LogLevel level, std::string message) {
 
 LogMessage::~LogMessage() { Logger::Instance().Write(level_, stream_.str()); }
 
-} // namespace hxrpc
+}  // namespace hxrpc
