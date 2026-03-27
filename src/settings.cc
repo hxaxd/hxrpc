@@ -1,7 +1,7 @@
 // src/settings.cc
-// 强类型配置装载实现。
-// 关键流程：解析 endpoint 与发现后端 -> 组装 Server/ClientConfig -> 回传错误语义。
-// 设计原因：把字符串配置解析集中管理，避免业务层散落解析逻辑。
+// 强类型配置装载实现
+// 关键流程: 解析 endpoint 与发现后端 -> 组装 Server/ClientConfig ->
+// 回传错误语义 设计原因: 把字符串配置解析集中管理, 避免业务层散落解析逻辑
 
 #include "settings.h"
 
@@ -10,7 +10,7 @@
 namespace {
 
 std::vector<std::string> Split(std::string_view raw, char delimiter) {
-  // 轻量分割工具：保留空字段，由上层决定是否接受。
+  // 轻量分割工具: 保留空字段, 由上层决定是否接受
   std::vector<std::string> parts;
   std::size_t cursor = 0;
   while (cursor <= raw.size()) {
@@ -27,7 +27,7 @@ std::vector<std::string> Split(std::string_view raw, char delimiter) {
 }
 
 std::string TrimCopy(std::string value) {
-  // 返回去除前后空白后的副本。
+  // 返回去除前后空白后的副本
   const auto begin = value.find_first_not_of(" \t\r\n");
   if (begin == std::string::npos) {
     return {};
@@ -47,7 +47,7 @@ namespace hxrpc {
 
 std::expected<ServerConfig, std::string> SettingsLoader::LoadServerConfig(
     const hxrpcconfig& config) {
-  // 错误语义：监听地址不合法时返回 unexpected，调用方可据此中断启动。
+  // 错误语义: 监听地址不合法时返回 unexpected, 调用方可据此中断启动
   auto endpoint_result = ParseEndpoint(
       config.Load("server.host") + ":" + config.Load("server.port"),
       "rpcserver");
@@ -65,7 +65,7 @@ std::expected<ServerConfig, std::string> SettingsLoader::LoadServerConfig(
 
 std::expected<ClientConfig, std::string> SettingsLoader::LoadClientConfig(
     const hxrpcconfig& config) {
-  // 错误语义：rpc_timeout_ms 解析失败或非正数时返回 unexpected。
+  // 错误语义: rpc_timeout_ms 解析失败或非正数时返回 unexpected
   ClientConfig client_config;
   client_config.discovery = LoadDiscoveryConfig(config);
   client_config.serialization.backend = SerializationBackend::kProtobuf;
@@ -85,8 +85,8 @@ std::expected<ClientConfig, std::string> SettingsLoader::LoadClientConfig(
 
 std::expected<Endpoint, std::string> SettingsLoader::ParseEndpoint(
     std::string_view raw, std::string_view field_name) {
-  // 参数：raw - host:port 字符串；field_name - 错误提示字段名。
-  // 返回：合法 Endpoint，或带字段上下文的错误信息。
+  // 参数: raw - host:port 字符串；field_name - 错误提示字段名
+  // 返回: 合法 Endpoint, 或带字段上下文的错误信息
   const auto separator = raw.find(':');
   if (separator == std::string_view::npos) {
     return std::unexpected(std::string(field_name) + " must be host:port");
@@ -108,7 +108,7 @@ std::expected<Endpoint, std::string> SettingsLoader::ParseEndpoint(
 }
 
 DiscoveryBackend SettingsLoader::ParseDiscoveryBackend(std::string_view raw) {
-  // 未识别值默认回退到静态发现，保证兼容历史配置。
+  // 未识别值默认回退到静态发现, 保证兼容历史配置
   if (raw == "zookeeper" || raw == "zk") {
     return DiscoveryBackend::kZookeeper;
   }
@@ -118,7 +118,7 @@ DiscoveryBackend SettingsLoader::ParseDiscoveryBackend(std::string_view raw) {
 std::expected<std::vector<Endpoint>, std::string>
 SettingsLoader::ParseEndpointList(std::string_view raw,
                                   std::string_view field_name) {
-  // 解析逗号分隔 endpoint 列表，任一元素失败即返回错误。
+  // 解析逗号分隔 endpoint 列表, 任一元素失败即返回错误
   std::vector<Endpoint> endpoints;
   for (auto item : Split(raw, ',')) {
     const auto parsed = ParseEndpoint(TrimCopy(std::move(item)), field_name);
@@ -131,7 +131,7 @@ SettingsLoader::ParseEndpointList(std::string_view raw,
 }
 
 DiscoveryConfig SettingsLoader::LoadDiscoveryConfig(const hxrpcconfig& config) {
-  // 设计原因：发现配置尽量容错（例如可选 zk 地址），让静态发现仍可工作。
+  // 设计原因: 发现配置尽量容错 (例如可选 zk 地址) , 让静态发现仍可工作
   DiscoveryConfig discovery_config;
   discovery_config.backend =
       ParseDiscoveryBackend(config.Load("discovery.backend"));

@@ -1,7 +1,10 @@
-#include "test_support.h"
 #include <cassert>
 
+#include "test_support.h"
+
 int main() {
+  // 测试目的: 端到端验证 RpcClient/RpcServer
+  // 在真实网络路径上的成功与失败业务结果
   const auto port = hxrpc::test::PickFreePort();
   auto server_config = hxrpc::test::MakeServerConfig(port);
   hxrpc::RpcServer server(server_config);
@@ -11,9 +14,10 @@ int main() {
 
   auto client_config = hxrpc::test::MakeClientConfig(port);
   hxrpc::RpcClient client(client_config);
-  const auto *login_method = hxrpc::test::FindMethod("Login");
+  const auto* login_method = hxrpc::test::FindMethod("Login");
   assert(login_method != nullptr);
 
+  // 场景一: 正确用户名密码, 期望业务成功且 errcode=0
   Kuser::LoginRequest good_request;
   good_request.set_name("alice");
   good_request.set_pwd("123456");
@@ -23,6 +27,7 @@ int main() {
   assert(good_response.success());
   assert(good_response.result().errcode() == 0);
 
+  // 场景二: 错误密码, RPC 传输仍成功, 但业务结果应失败且 errcode=1
   Kuser::LoginRequest bad_request;
   bad_request.set_name("alice");
   bad_request.set_pwd("bad-password");

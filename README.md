@@ -1,13 +1,13 @@
 # hxrpc
 
-一个面向教学与工程演进的、基于 `epoll + C++20 coroutine + protobuf` 的轻量级 C++ RPC 框架。
+一个面向教学与工程演进的, 基于 `epoll + C++20 coroutine + protobuf` 的轻量级 C++ RPC 框架
 
-当前版本已经去掉旧的 bridge facade，对外只保留两类核心入口：
+当前版本已经去掉旧的 bridge facade, 对外只保留两类核心入口:
 
 - `RpcServer`
 - `RpcClient`
 
-框架目标是把网络、传输、发现、分发、序列化这些能力分层拆清楚，再在这套骨架上逐步演进协程、对象池、动态发现和服务治理。
+框架目标是把网络, 传输, 发现, 分发, 序列化这些能力分层拆清楚, 再在这套骨架上逐步演进协程, 对象池, 动态发现和服务治理
 
 ## 核心结构
 
@@ -16,9 +16,9 @@
 - `Reactor`
     - 负责 `epoll` 生命周期和 fd 事件分发
 - `ConnectionManager`
-    - 负责监听、accept、连接缓冲、半包/粘包处理、发送与关闭
+    - 负责监听, accept, 连接缓冲, 半包/粘包处理, 发送与关闭
 - `RpcDispatcher`
-    - 负责解码请求、定位 service/method、反序列化、调用 protobuf service、编码响应
+    - 负责解码请求, 定位 service/method, 反序列化, 调用 protobuf service, 编码响应
 - `RpcServer`
     - 负责装配上述组件并对外暴露服务注册与运行入口
 
@@ -31,7 +31,7 @@
 - `Serializer`
     - 负责业务对象与 payload 之间的转换
 - `RpcClient`
-    - 负责把发现、序列化、协议编解码、传输组合成一次完整 RPC 调用
+    - 负责把发现, 序列化, 协议编解码, 传输组合成一次完整 RPC 调用
 
 ## 当前能力
 
@@ -47,7 +47,7 @@
 
 ## 协议格式
 
-请求与响应统一采用如下格式：
+请求与响应统一采用如下格式:
 
 ```text
 +----------------------+----------------------+----------------------+------------------+
@@ -55,7 +55,7 @@
 +----------------------+----------------------+----------------------+------------------+
 ```
 
-请求头包含：
+请求头包含:
 
 - `request_id`
 - `service_name`
@@ -63,18 +63,18 @@
 - `args_size`
 - `meta_size`
 
-响应头包含：
+响应头包含:
 
 - `request_id`
 - `status_code`
 - `error_text`
 - `payload_size`
 
-其中请求 `metadata` 已经进入调用语义，会跟随一次调用一起编码、传输并在服务端通过 `hxrpccontroller` 暴露给业务实现。
+其中请求 `metadata` 已经进入调用语义, 会跟随一次调用一起编码, 传输并在服务端通过 `hxrpccontroller` 暴露给业务实现
 
 ## 配置模型
 
-启动时配置会被装配成强类型对象：
+启动时配置会被装配成强类型对象:
 
 - `ServerConfig`
 - `ClientConfig`
@@ -83,7 +83,7 @@
 - `SerializationConfig`
 - `CallOptions`
 
-静态发现示例：
+静态发现示例:
 
 ```yaml
 client:
@@ -96,7 +96,7 @@ discovery:
     UserServiceRpc.Register: 127.0.0.1:8000
 ```
 
-Zookeeper 发现示例：
+Zookeeper 发现示例:
 
 ```yaml
 client:
@@ -111,7 +111,7 @@ discovery:
 
 ## 使用方式
 
-### 服务端
+### 服务端注册
 
 ```cpp
 auto config = hxrpc::SettingsLoader::LoadServerConfig(hxrpcApplication::GetConfig());
@@ -219,20 +219,20 @@ cmake --build build -j$(nproc)
 ./bin/benchmark_client -i ./server.yaml
 ```
 
-也可以覆盖 benchmark 参数：
+也可以覆盖 benchmark 参数:
 
 ```bash
 ./bin/benchmark_client -i ./server.yaml --concurrency 256 --requests 8 --timeout-ms 1500
 ```
 
-`benchmark_client` 会从 `server.yaml` 读取服务端地址与发现方式，
-但客户端自己的 benchmark 参数仍然写在代码里。
+`benchmark_client` 会从 `server.yaml` 读取服务端地址与发现方式,
+但客户端自己的 benchmark 参数仍然写在代码里
 
-benchmark 结果会额外写入：
+benchmark 结果会额外写入:
 
 - `logs/benchmark_report_<timestamp>.json`
 
-报告包含：
+报告包含:
 
 - `success_rate`
 - `avg_latency_ms`
@@ -241,13 +241,13 @@ benchmark 结果会额外写入：
 
 ## 日志配置
 
-当前日志支持：
+当前日志支持:
 
 - 异步写入
 - 同时输出到 `stderr`
 - 同时输出到配置文件路径
 
-示例：
+示例:
 
 ```yaml
 client:
@@ -274,7 +274,7 @@ logging:
 
 ## 测试
 
-当前测试覆盖：
+当前测试覆盖:
 
 - 配置解析
 - 协议编解码
@@ -295,11 +295,10 @@ ctest --test-dir build --output-on-failure
 
 ## 当前限制
 
-当前版本仍然刻意保持简单：
+当前版本仍然刻意保持简单:
 
-- 客户端仍是“一请求一连接”，尚未引入连接池
-- 服务端业务处理仍基于 protobuf 同步回调，不是 coroutine-native handler
-- 暂未实现 retry、熔断、限流、metrics、trace
+- 服务端业务处理仍基于 protobuf 同步回调, 不是 coroutine-native handler
+- 暂未实现 retry, 熔断, 限流, metrics, trace
 - 对象池目前只覆盖 `Protobuf Message`
 
-但这几类能力都已经有明确的插入位置，不需要推翻核心结构。
+但这几类能力都已经有明确的插入位置, 不需要推翻核心结构

@@ -1,9 +1,9 @@
 // src/logger.cc
-// 日志模块实现。
-// 核心设计：
-// 1) 统一格式化入口，保证 stderr 与文件输出一致；
-// 2) 异步模式通过队列 + 后台线程批量刷盘，降低业务线程阻塞；
-// 3) 同步模式用于故障定位与极简场景。
+// 日志模块实现
+// 核心设计:
+// 1) 统一格式化入口, 保证 stderr 与文件输出一致；
+// 2) 异步模式通过队列 + 后台线程批量刷盘, 降低业务线程阻塞；
+// 3) 同步模式用于故障定位与极简场景
 
 #include "logger.h"
 
@@ -34,7 +34,7 @@ struct LogEntry {
 
 class LoggerImpl {
  public:
-  // 启动后台日志线程（异步模式与同步模式共用同一实现，便于统一收尾逻辑）。
+  // 启动后台日志线程 (异步模式与同步模式共用同一实现, 便于统一收尾逻辑)
   LoggerImpl() : worker_([this]() { Run(); }) {}
 
   ~LoggerImpl() {
@@ -52,7 +52,7 @@ class LoggerImpl {
   }
 
   std::expected<void, std::string> Configure(const LoggerOptions& options) {
-    // 错误语义：目录创建或文件打开失败时返回 unexpected，不抛异常。
+    // 错误语义: 目录创建或文件打开失败时返回 unexpected, 不抛异常
     std::lock_guard<std::mutex> lock(mutex_);
 
     std::ofstream next_stream;
@@ -80,14 +80,14 @@ class LoggerImpl {
   }
 
   void Write(LogLevel level, std::string message) {
-    // 设计原因：统一在入口处做等级过滤，避免后续路径重复判断。
+    // 设计原因: 统一在入口处做等级过滤, 避免后续路径重复判断
     std::unique_lock<std::mutex> lock(mutex_);
     if (level < options_.min_level) {
       return;
     }
 
     if (!options_.async_enabled) {
-      // 同步模式：调用线程直接输出并 flush，换取最即时的可见性。
+      // 同步模式: 调用线程直接输出并 flush, 换取最即时的可见性
       const std::string formatted = FormatLine(LogEntry{
           level, std::chrono::system_clock::now(), std::move(message)});
       WriteUnlocked(formatted);
@@ -137,7 +137,7 @@ class LoggerImpl {
   }
 
   void Run() {
-    // 后台线程循环：定时或被唤醒后批量搬运队列，减少锁竞争与频繁 IO。
+    // 后台线程循环: 定时或被唤醒后批量搬运队列, 减少锁竞争与频繁 IO
     std::vector<LogEntry> batch;
     batch.reserve(256);
 
@@ -172,7 +172,7 @@ class LoggerImpl {
   }
 
   void WriteBatch(const std::vector<LogEntry>& batch) {
-    // 设计原因：批量写可摊薄系统调用与 flush 成本，提升高并发日志吞吐。
+    // 设计原因: 批量写可摊薄系统调用与 flush 成本, 提升高并发日志吞吐
     for (const auto& entry : batch) {
       WriteUnlocked(
           FormatLine(LogEntry{entry.level, entry.timestamp, entry.message}));

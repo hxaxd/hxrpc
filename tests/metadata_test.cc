@@ -1,29 +1,31 @@
+#include <cassert>
+
 #include "controller.h"
 #include "test_support.h"
-#include <cassert>
 
 namespace {
 
 class MetadataAwareUserService final : public Kuser::UserServiceRpc {
-public:
-  void Login(::google::protobuf::RpcController *controller,
-             const ::Kuser::LoginRequest *request,
-             ::Kuser::LoginResponse *response,
-             ::google::protobuf::Closure *done) override {
+ public:
+  void Login(::google::protobuf::RpcController* controller,
+             const ::Kuser::LoginRequest* request,
+             ::Kuser::LoginResponse* response,
+             ::google::protobuf::Closure* done) override {
     (void)request;
-    auto *typed = dynamic_cast<hxrpccontroller *>(controller);
+    // 测试意图: 从自定义 controller 读取请求元数据, 并回显到业务字段中
+    auto* typed = dynamic_cast<hxrpccontroller*>(controller);
     assert(typed != nullptr);
-    auto *result = response->mutable_result();
+    auto* result = response->mutable_result();
     result->set_errcode(0);
     result->set_errmsg(typed->RequestMetadata());
     response->set_success(typed->RequestMetadata() == "trace_id=metadata-test");
     done->Run();
   }
 
-  void Register(::google::protobuf::RpcController *controller,
-                const ::Kuser::RegisterRequest *request,
-                ::Kuser::RegisterResponse *response,
-                ::google::protobuf::Closure *done) override {
+  void Register(::google::protobuf::RpcController* controller,
+                const ::Kuser::RegisterRequest* request,
+                ::Kuser::RegisterResponse* response,
+                ::google::protobuf::Closure* done) override {
     (void)controller;
     (void)request;
     response->set_success(true);
@@ -31,9 +33,10 @@ public:
   }
 };
 
-} // namespace
+}  // namespace
 
 int main() {
+  // 测试目的: 验证客户端 CallOptions.metadata 能透传到服务端 controller
   const auto port = hxrpc::test::PickFreePort();
   auto server_config = hxrpc::test::MakeServerConfig(port);
   hxrpc::RpcServer server(server_config);
@@ -44,7 +47,7 @@ int main() {
 
   auto client_config = hxrpc::test::MakeClientConfig(port);
   hxrpc::RpcClient client(client_config);
-  const auto *login_method = hxrpc::test::FindMethod("Login");
+  const auto* login_method = hxrpc::test::FindMethod("Login");
   assert(login_method != nullptr);
 
   Kuser::LoginRequest request;
@@ -54,6 +57,7 @@ int main() {
   hxrpc::CallOptions options = client_config.call_options;
   options.metadata = "trace_id=metadata-test";
   const auto result = client.Invoke(login_method, request, response, options);
+  // 关键断言: RPC 调用成功且服务端拿到了同一份 metadata
   assert(result.has_value());
   assert(response.success());
   assert(response.result().errmsg() == "trace_id=metadata-test");

@@ -2,8 +2,8 @@
 #define HXRPC_ASYNC_RUNTIME_H
 
 // src/include/async_runtime.h
-// 协程异步运行时接口。
-// 职责：把 fd 就绪事件与超时事件桥接到 C++20 协程，提供可取消的 awaiter。
+// 协程异步运行时接口
+// 职责: 把 fd 就绪事件与超时事件桥接到 C++20 协程, 提供可取消的 awaiter
 
 #include <sys/epoll.h>
 
@@ -22,8 +22,8 @@ namespace hxrpc {
 
 class AsyncRuntime {
  public:
-  // 获取运行时单例。
-  // 返回：全局 AsyncRuntime 引用。
+  // 获取运行时单例
+  // 返回: 全局 AsyncRuntime 引用
   static AsyncRuntime& Instance();
 
   AsyncRuntime(const AsyncRuntime&) = delete;
@@ -31,23 +31,24 @@ class AsyncRuntime {
 
   class FdAwaiter {
    public:
-    // 构造 fd awaiter。
-    // 参数：
+    // 构造 fd awaiter
+    // 参数:
     //   - fd: 监听的文件描述符；
-    //   - events: epoll 事件掩码（例如 EPOLLIN/EPOLLOUT）；
-    //   - timeout_ms: 超时毫秒数。
-    // 错误语义：构造阶段不进行系统调用，注册失败在 await_suspend 后由运行时处理。
+    //   - events: epoll 事件掩码 (例如 EPOLLIN/EPOLLOUT) ；
+    //   - timeout_ms: 超时毫秒数
+    // 错误语义: 构造阶段不进行系统调用, 注册失败在 await_suspend
+    // 后由运行时处理
     FdAwaiter(int fd, std::uint32_t events, int timeout_ms);
 
-    // 析构时若等待尚未完成，会主动取消注册，避免悬挂回调恢复已失效协程。
+    // 析构时若等待尚未完成, 会主动取消注册, 避免悬挂回调恢复已失效协程
     ~FdAwaiter();
 
     [[nodiscard]] bool await_ready() const noexcept { return false; }
     void await_suspend(std::coroutine_handle<> handle);
-    // 恢复点返回等待结果。
-    // 返回：
+    // 恢复点返回等待结果
+    // 返回:
     //   - true: 收到目标事件；
-    //   - false: 超时或等待状态无效。
+    //   - false: 超时或等待状态无效
     [[nodiscard]] bool await_resume() const noexcept {
       return state_ != nullptr &&
              !state_->timed_out.load(std::memory_order_acquire);
@@ -69,14 +70,14 @@ class AsyncRuntime {
     std::shared_ptr<WaitState> state_;
   };
 
-  // 创建 fd 等待对象。
-  // 参数语义与 FdAwaiter 构造函数一致。
-  // 返回：可 co_await 的 FdAwaiter。
+  // 创建 fd 等待对象
+  // 参数语义与 FdAwaiter 构造函数一致
+  // 返回: 可 co_await 的 FdAwaiter
   [[nodiscard]] FdAwaiter WaitFor(int fd, std::uint32_t events, int timeout_ms);
 
-  // 按 token 取消等待。
-  // 参数：token - 等待注册唯一标识。
-  // 错误语义：token 无效或不存在时静默返回。
+  // 按 token 取消等待
+  // 参数: token - 等待注册唯一标识
+  // 错误语义: token 无效或不存在时静默返回
   void Cancel(std::uint64_t token);
 
  private:

@@ -1,8 +1,8 @@
 // benchmark/client/client.cc
-// 基准压测客户端示例。
-// 设计目标：以最小业务逻辑展示 hxrpc
-// 客户端并发调用链路，并输出可回归比较的结构化指标报告。
-// 本文件仅演示调用方式与统计口径，不负责业务协议演进。
+// 基准压测客户端示例
+// 设计目标: 以最小业务逻辑展示 hxrpc
+// 客户端并发调用链路, 并输出可回归比较的结构化指标报告
+// 本文件仅演示调用方式与统计口径, 不负责业务协议演进
 
 #include <sys/resource.h>
 
@@ -13,7 +13,6 @@
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
-#include <format>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -45,29 +44,30 @@ struct BenchmarkOptions {
   int timeout_ms{kDefaultTimeoutMs};
 };
 
-// 把字符串解析成正整数。
-// 参数：raw - 待解析字符串。
-// 返回：
-//   - 解析成功且值 > 0：返回对应整数；
-//   - 解析失败、存在非数字字符或值 <= 0：返回 std::nullopt。
-// 错误语义：本函数不抛异常，调用方通过 optional 判定并回退到默认值。
+// 把字符串解析成正整数
+// 参数: raw - 待解析字符串
+// 返回:
+//   - 解析成功且值 > 0: 返回对应整数；
+//   - 解析失败, 存在非数字字符或值 <= 0: 返回 std::nullopt
+// 错误语义: 本函数不抛异常, 调用方通过 optional 判定并回退到默认值
 std::optional<int> ParsePositiveInt(const std::string& raw) {
   int value{0};
 
   // 把字符串转成 int, 返回错误码 + 结束位置
-  auto [ptr, ec] = std::from_chars(raw.begin(), raw.end(), value);
+  auto [ptr, ec] = std::from_chars(raw.data(), raw.data() + raw.size(), value);
 
-  if (ec != std::errc{} || ptr == raw.begin() || ptr != raw.end())
+  if (ec != std::errc{} || ptr == raw.data() || ptr != raw.data() + raw.size())
     return std::nullopt;
 
   return value;
 }
 
-// 解析命令行参数并构建压测配置。
-// 参数：argc/argv - 程序启动参数。
-// 返回：BenchmarkOptions。
-// 设计原因：命令行参数仅覆盖关键压测维度，其余保持默认值，减少压测脚本维护成本。
-// 错误语义：非法参数值会被忽略并使用默认值，不会中断进程启动。
+// 解析命令行参数并构建压测配置
+// 参数: argc/argv - 程序启动参数
+// 返回: BenchmarkOptions
+// 设计原因: 命令行参数仅覆盖关键压测维度, 其余保持默认值,
+// 减少压测脚本维护成本 错误语义: 非法参数值会被忽略并使用默认值,
+// 不会中断进程启动
 BenchmarkOptions ParseOptions(int argc, char** argv) {
   BenchmarkOptions options;
   for (int index = 1; index < argc; ++index) {
@@ -100,7 +100,11 @@ std::string MakeTimestamp() {
   // 用了静态变量来做缓冲)
   localtime_r(&current_time, &time_info);  // 时间戳 -> 时间结构体
 
-  return std::format("{:%Y%m%d_%H%M%S}", time_info);
+  char buffer[32]{};
+  // 使用 strftime 保证在当前 libstdc++ 环境下可移植。
+  if (std::strftime(buffer, sizeof(buffer), "%Y%m%d_%H%M%S", &time_info) == 0)
+    return "19700101_000000";
+  return std::string(buffer);
 }
 
 std::string MakeReportPath(const std::string& timestamp) {
@@ -121,12 +125,12 @@ struct Metrics {
   double p99_latency_ms{0.0};
 };
 
-// 计算分位延迟。
-// 参数：
-//   - sorted_latencies: 已按升序排序的延迟样本（毫秒）；
-//   - quantile: 分位点（例如 0.95/0.99）。
-// 返回：对应分位延迟（毫秒）；当样本为空时返回 0。
-// 设计原因：采用“向上取整后减一”的离散索引规则，保证尾部延迟统计更保守。
+// 计算分位延迟
+// 参数:
+//   - sorted_latencies: 已按升序排序的延迟样本 (毫秒) ；
+//   - quantile: 分位点 (例如 0.95/0.99)
+// 返回: 对应分位延迟 (毫秒) ；当样本为空时返回 0
+// 设计原因: 采用向上取整后减一的离散索引规则, 保证尾部延迟统计更保守
 double QuantileMs(const std::vector<double>& sorted_latencies,
                   double quantile) {
   if (sorted_latencies.empty()) {
@@ -137,13 +141,13 @@ double QuantileMs(const std::vector<double>& sorted_latencies,
   return sorted_latencies[std::min(index, sorted_latencies.size() - 1)];
 }
 
-// 由原始统计值构建核心指标。
-// 参数：
+// 由原始统计值构建核心指标
+// 参数:
 //   - total_requests: 总请求数；
-//   - latencies_ms: 成功请求的延迟样本（毫秒）；
-//   - success_count: 业务成功请求数。
-// 返回：Metrics，包含成功率、平均延迟与分位延迟。
-// 错误语义：当 total_requests 或样本为空时，返回值中的对应指标保持 0。
+//   - latencies_ms: 成功请求的延迟样本 (毫秒) ；
+//   - success_count: 业务成功请求数
+// 返回: Metrics, 包含成功率, 平均延迟与分位延迟
+// 错误语义: 当 total_requests 或样本为空时, 返回值中的对应指标保持 0
 Metrics BuildMetrics(int total_requests,
                      const std::vector<double>& latencies_ms,
                      int success_count) {
@@ -170,16 +174,16 @@ Metrics BuildMetrics(int total_requests,
   return metrics;
 }
 
-// 将压测结果写入 JSON 报告文件，便于后续回归对比。
-// 参数：
+// 将压测结果写入 JSON 报告文件, 便于后续回归对比
+// 参数:
 //   - report_path: 输出文件路径；
 //   - options: 压测配置；
 //   - total_requests/success_count/framework_failures/business_failures:
 //   计数指标；
 //   - elapsed_ms/qps: 吞吐指标；
 //   - metrics: 延迟与成功率指标；
-//   - launch_error: 线程启动阶段错误信息（若存在）。
-// 错误语义：目录创建或文件打开失败时仅记录日志并返回，不抛异常、不终止主流程。
+//   - launch_error: 线程启动阶段错误信息 (若存在)
+// 错误语义: 目录创建或文件打开失败时仅记录日志并返回, 不抛异常, 不终止主流程
 void WriteBenchmarkReport(const std::string& report_path,
                           const BenchmarkOptions& options, int total_requests,
                           int success_count, int framework_failures,
@@ -231,15 +235,15 @@ void WriteBenchmarkReport(const std::string& report_path,
 }  // namespace
 
 int main(int argc, char** argv) {
-  // 设计原因：benchmark 关注的是延迟与吞吐，可观测性由日志与报告承担，关闭 core
-  // dump 可避免磁盘噪声。 压测程序通常不需要 core dump, 避免生成大体积转储文件
+  // 设计原因: benchmark 关注的是延迟与吞吐, 可观测性由日志与报告承担, 关闭 core
+  // dump 可避免磁盘噪声 压测程序通常不需要 core dump, 避免生成大体积转储文件
   rlimit core_limit{};
   core_limit.rlim_cur = 0;  // 软限制
   core_limit.rlim_max = 0;  // 硬限制
-  [[maybe_unused]] ::setrlimit(RLIMIT_CORE,
-                               &core_limit);  // 设置 core dump 大小限制为 0
+  (void)::setrlimit(RLIMIT_CORE,
+                    &core_limit);  // 设置 core dump 大小限制为 0
 
-  // 初始化应用 (读取 -i 指定配置、初始化全局组件等)
+  // 初始化应用 (读取 -i 指定配置, 初始化全局组件等)
   hxrpcApplication::Init(argc, argv);
 
   // 解析命令行与报告路径
@@ -247,7 +251,7 @@ int main(int argc, char** argv) {
   const std::string timestamp = MakeTimestamp();
   const std::string report_path = MakeReportPath(timestamp);
 
-  // 配置 benchmark 客户端日志：默认仅写文件, 降低终端噪声
+  // 配置 benchmark 客户端日志: 默认仅写文件, 降低终端噪声
   hxrpc::LoggerOptions client_logger_options;
   client_logger_options.async_enabled = true;
   client_logger_options.stderr_enabled = false;
@@ -292,7 +296,7 @@ int main(int argc, char** argv) {
   const int requests_per_worker = benchmark_options.requests_per_worker;
   const int total_requests = concurrency * requests_per_worker;
 
-  // 统计项：
+  // 统计项:
   // - framework_failures: 框架层失败 (网络/超时/协议等)
   // - business_failures: 业务层失败 (RPC 成功返回但 success=false)
   int success_count = 0;
