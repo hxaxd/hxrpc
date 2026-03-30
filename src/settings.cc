@@ -85,7 +85,7 @@ std::expected<ClientConfig, std::string> SettingsLoader::LoadClientConfig(
 
 std::expected<Endpoint, std::string> SettingsLoader::ParseEndpoint(
     std::string_view raw, std::string_view field_name) {
-  // 参数: raw - host:port 字符串；field_name - 错误提示字段名
+  // 参数: raw - host:port 字符串field_name - 错误提示字段名
   // 返回: 合法 Endpoint, 或带字段上下文的错误信息
   const auto separator = raw.find(':');
   if (separator == std::string_view::npos) {

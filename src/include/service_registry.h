@@ -34,7 +34,7 @@ class ServiceRegistry {
   void RegisterService(google::protobuf::Service* service);
 
   // 按服务名与方法名查找目标方法
-  // 返回: 成功为 RegisteredMethod；失败区分 unknown service / unknown method
+  // 返回: 成功为 RegisteredMethod失败区分 unknown service / unknown method
   [[nodiscard]] std::expected<RegisteredMethod, RpcError> Find(
       std::string_view service_name, std::string_view method_name) const;
 

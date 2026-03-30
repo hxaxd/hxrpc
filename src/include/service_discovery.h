@@ -21,7 +21,7 @@ namespace hxrpc {
 class ServiceResolver {
  public:
   virtual ~ServiceResolver() = default;
-  // 返回: 成功为实例信息；失败为发现错误 (配置缺失, 后端不可用, 无实例等)
+  // 返回: 成功为实例信息失败为发现错误 (配置缺失, 后端不可用, 无实例等)
   [[nodiscard]] virtual std::expected<ServiceInstance, RpcError> Resolve(
       std::string_view service_name, std::string_view method_name) = 0;
 };
@@ -30,7 +30,7 @@ class ServiceResolver {
 class ServiceRegistrar {
  public:
   virtual ~ServiceRegistrar() = default;
-  // endpoint 通常编码为 host:port；失败返回发现层错误
+  // endpoint 通常编码为 host:port失败返回发现层错误
   [[nodiscard]] virtual std::expected<void, RpcError> Register(
       std::string_view service_name, std::string_view method_name,
       const Endpoint& endpoint) = 0;
@@ -48,7 +48,7 @@ class StaticResolver final : public ServiceResolver {
                                                   std::string_view method_name);
 
  private:
-  // 在候选 endpoint 中按策略选择一个实例；空列表返回发现错误
+  // 在候选 endpoint 中按策略选择一个实例空列表返回发现错误
   [[nodiscard]] std::expected<ServiceInstance, RpcError> ChooseInstance(
       const std::vector<Endpoint>& endpoints);
 
@@ -116,7 +116,7 @@ class ZkRegistrar final : public ServiceRegistrar {
 
 class DiscoveryFactory {
  public:
-  // 工厂会按配置选择后端；若 ZooKeeper 不可用会回退到可用实现
+  // 工厂会按配置选择后端若 ZooKeeper 不可用会回退到可用实现
   [[nodiscard]] static std::unique_ptr<ServiceResolver> CreateResolver(
       const DiscoveryConfig& config);
   [[nodiscard]] static std::unique_ptr<ServiceRegistrar> CreateRegistrar(

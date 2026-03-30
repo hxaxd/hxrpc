@@ -12,8 +12,8 @@ set(PROTO_FILES ${CMAKE_CURRENT_SOURCE_DIR}/header.proto)
 protobuf_generate(TARGET core LANGUAGE cpp PROTOS ${PROTO_FILES})
 
 # core 的公开头文件目录: 
-# - include: 手写对外接口；
-# - binary dir: protobuf 生成头；
+# - include: 手写对外接口
+# - binary dir: protobuf 生成头
 # - protobuf include: 第三方依赖头
 target_include_directories(core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

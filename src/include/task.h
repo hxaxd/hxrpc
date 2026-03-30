@@ -12,7 +12,7 @@
 namespace hxrpc {
 
 // Task<T> 是一个可 co_await + 可同步 Get()的轻量协程结果容器:
-// - 协程结束后把值/异常写入 promise；
+// - 协程结束后把值/异常写入 promise
 // - 调用方既可在协程链路里 co_await, 也可在同步场景阻塞等待结果
 template <typename T>
 class Task {
@@ -41,7 +41,7 @@ class Task {
     }
   }
 
-  // 同步等待协程完成并取回结果；若协程抛异常则在此重新抛出
+  // 同步等待协程完成并取回结果若协程抛异常则在此重新抛出
   T Get() {
     auto& promise = handle_.promise();
     std::unique_lock<std::mutex> lock(promise.mutex);

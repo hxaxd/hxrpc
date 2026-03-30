@@ -24,7 +24,7 @@ class hxrpcconfig {
 
   // 按 key 读取配置项
   // 参数: key - 扁平键名 (例如 logging.path)
-  // 返回: 命中的值；若不存在返回空字符串
+  // 返回: 命中的值若不存在返回空字符串
   [[nodiscard]] std::string Load(std::string_view key) const;
 
   // 返回全部配置条目 (只读视图)

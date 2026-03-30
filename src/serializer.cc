@@ -5,7 +5,7 @@ namespace hxrpc {
 std::expected<std::string, RpcError> ProtobufSerializer::Serialize(
     const google::protobuf::Message& message,
     const SerializationContext& context) const {
-  // 当前 protobuf 路径无需上下文参与编码逻辑；保留参数用于接口统一与未来扩展
+  // 当前 protobuf 路径无需上下文参与编码逻辑保留参数用于接口统一与未来扩展
   (void)context;
   std::string payload;
   if (!message.SerializeToString(&payload)) {

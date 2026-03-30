@@ -7,7 +7,7 @@
 namespace {
 
 // 轻量 done 闭包:
-// - 通过引用写回 done_called_, 便于外层检测业务方法是否调用 done->Run()；
+// - 通过引用写回 done_called_, 便于外层检测业务方法是否调用 done->Run()
 // - 额外维护 called_ 标志, 防止仅修改引用值但未真正 Run 的误判
 class InlineDoneClosure : public google::protobuf::Closure {
  public:

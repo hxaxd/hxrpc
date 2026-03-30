@@ -12,8 +12,8 @@ namespace hxrpc {
 
 // RpcDispatcher 负责把协议帧翻译成protobuf 方法调用, 再编码响应帧
 // 它是网络层与业务 Service 之间的桥接点:
-// 1) 解码请求并定位服务方法；
-// 2) 反序列化请求消息并调用业务方法；
+// 1) 解码请求并定位服务方法
+// 2) 反序列化请求消息并调用业务方法
 // 3) 序列化响应并回包
 class RpcDispatcher {
  public:
@@ -26,7 +26,7 @@ class RpcDispatcher {
 
   // 处理单个完整请求帧
   // 参数: frame 为按 RpcCodec 协议编码后的请求帧
-  // 返回: 成功时返回已编码的响应帧；失败时返回 RpcError (框架层错误)
+  // 返回: 成功时返回已编码的响应帧失败时返回 RpcError (框架层错误)
   [[nodiscard]] std::expected<std::string, RpcError> HandleFrame(
       std::string_view frame) const;
 

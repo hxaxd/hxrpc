@@ -37,9 +37,9 @@ class UserService final : public Kuser::UserServiceRpc {
 
   // Login RPC 回调
   // 参数:
-  //   - controller: 框架传入控制器 (本示例未使用) ；
-  //   - request: 输入请求；
-  //   - response: 输出响应；
+  //   - controller: 框架传入控制器 (本示例未使用)
+  //   - request: 输入请求
+  //   - response: 输出响应
   //   - done: 完成回调, 必须调用以通知框架结束本次处理
   // 返回: void (结果通过 response 输出)
   // 错误语义: 业务失败通过 result.errcode/errmsg 与 success=false
@@ -59,7 +59,7 @@ class UserService final : public Kuser::UserServiceRpc {
   }
 
   // Register RPC 回调
-  // 参数与返回语义同 Login；错误通过 response 字段表达
+  // 参数与返回语义同 Login错误通过 response 字段表达
   void Register(::google::protobuf::RpcController* controller,
                 const ::Kuser::RegisterRequest* request,
                 ::Kuser::RegisterResponse* response,

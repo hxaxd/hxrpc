@@ -19,7 +19,7 @@ class ConnectionManager {
   ~ConnectionManager();
 
   // 在给定 endpoint 上创建监听 socket, 并把监听 fd 注册到 Reactor
-  // 返回值: true 表示监听建立成功；false 表示任一底层步骤失败
+  // 返回值: true 表示监听建立成功false 表示任一底层步骤失败
   [[nodiscard]] bool Listen(const Endpoint& endpoint);
   // 设置完整帧处理器
   // 参数: connection_fd 为来源连接, frame 为完整协议帧 (二进制)
@@ -43,7 +43,7 @@ class ConnectionManager {
     std::size_t bytes_sent{0};
   };
 
-  // 把 fd 设为非阻塞模式；Reactor 假设所有 socket 都是非阻塞
+  // 把 fd 设为非阻塞模式Reactor 假设所有 socket 都是非阻塞
   static bool SetNonBlocking(int fd);
   // 消费监听 fd 上的可读事件, 批量 accept 新连接直到 EAGAIN
   void AcceptLoop(int listen_fd);

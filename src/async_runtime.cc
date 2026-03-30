@@ -1,8 +1,8 @@
 // src/async_runtime.cc
 // 协程异步运行时实现
 // 核心设计:
-// 1) epoll + eventfd 构建单线程事件循环；
-// 2) 注册表以 token 跟踪等待项；
+// 1) epoll + eventfd 构建单线程事件循环
+// 2) 注册表以 token 跟踪等待项
 // 3) 统一由 ResumeReady 恢复协程并写入超时状态
 
 #include "async_runtime.h"

@@ -18,7 +18,7 @@ void ServiceRegistry::RegisterService(google::protobuf::Service* service) {
   }
 }
 
-// 先做精确键查找；若失败再判定服务是否存在, 以便返回更明确的错误码
+// 先做精确键查找若失败再判定服务是否存在, 以便返回更明确的错误码
 std::expected<RegisteredMethod, RpcError> ServiceRegistry::Find(
     std::string_view service_name, std::string_view method_name) const {
   const std::string key =

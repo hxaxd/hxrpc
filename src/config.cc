@@ -42,8 +42,8 @@ void ParseYamlLine(std::string line,
                    std::vector<std::pair<std::size_t, std::string>>& sections,
                    std::unordered_map<std::string, std::string>& config_map) {
   // 参数:
-  //   - line: 当前文本行；
-  //   - sections: 层级栈 (缩进 -> section 名) ；
+  //   - line: 当前文本行
+  //   - sections: 层级栈 (缩进 -> section 名)
   //   - config_map: 输出扁平配置表
   // 错误语义: 格式不完整的行会被忽略, 不中断加载流程
   const auto comment = line.find('#');

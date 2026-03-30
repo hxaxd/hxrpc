@@ -20,7 +20,7 @@ class ClientTransport {
  public:
   virtual ~ClientTransport() = default;
   // 同步单次往返
-  // endpoint: 目标实例地址；frame: 已带长度前缀的完整请求帧；options:
+  // endpoint: 目标实例地址frame: 已带长度前缀的完整请求帧options:
   // 超时等调用参数 返回: 成功为完整响应帧, 失败为
   // RpcError (网络错误, 超时, 无效包等)
   [[nodiscard]] virtual std::expected<std::string, RpcError> RoundTrip(
@@ -49,7 +49,7 @@ class TcpClientTransport final : public ClientTransport {
       const Endpoint& endpoint, const CallOptions& options) const;
   [[nodiscard]] Task<std::expected<int, RpcError>> ConnectToAsync(
       const Endpoint& endpoint, const CallOptions& options);
-  // 保证发送/接收指定字节数完整完成；中途异常统一映射为 RpcError
+  // 保证发送/接收指定字节数完整完成中途异常统一映射为 RpcError
   [[nodiscard]] static std::expected<void, RpcError> SendAll(
       int socket_fd, std::string_view data);
   [[nodiscard]] Task<std::expected<void, RpcError>> SendAllAsync(

@@ -15,7 +15,7 @@ protobuf_generate(
 )
 
 # 导出包含目录: 
-# - 当前目录 (user.pb.h) ；
+# - 当前目录 (user.pb.h) 
 # - protobuf 官方头文件目录
 target_include_directories(benchmark_proto PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}

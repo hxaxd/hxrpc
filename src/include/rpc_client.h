@@ -25,7 +25,7 @@ class RpcClient {
 
   // 同步调用接口
   // method/request/response: 对应 protobuf 方法描述, 请求与输出响应对象
-  // 返回: 成功为 void；失败为 RpcError (发现失败, 网络失败, 编解码失败等)
+  // 返回: 成功为 void失败为 RpcError (发现失败, 网络失败, 编解码失败等)
   [[nodiscard]] std::expected<void, RpcError> Invoke(
       const google::protobuf::MethodDescriptor* method,
       const google::protobuf::Message& request,

@@ -19,7 +19,7 @@ class hxrpcApplication {
 
   // 获取应用单例
   // 返回: 全局唯一实例引用
-  // 错误语义: 不抛异常；内部通过互斥锁保证并发安全
+  // 错误语义: 不抛异常内部通过互斥锁保证并发安全
   static hxrpcApplication& GetInstance();
 
   // 获取全局配置对象

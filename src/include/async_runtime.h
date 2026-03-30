@@ -33,8 +33,8 @@ class AsyncRuntime {
    public:
     // 构造 fd awaiter
     // 参数:
-    //   - fd: 监听的文件描述符；
-    //   - events: epoll 事件掩码 (例如 EPOLLIN/EPOLLOUT) ；
+    //   - fd: 监听的文件描述符
+    //   - events: epoll 事件掩码 (例如 EPOLLIN/EPOLLOUT)
     //   - timeout_ms: 超时毫秒数
     // 错误语义: 构造阶段不进行系统调用, 注册失败在 await_suspend
     // 后由运行时处理
@@ -47,7 +47,7 @@ class AsyncRuntime {
     void await_suspend(std::coroutine_handle<> handle);
     // 恢复点返回等待结果
     // 返回:
-    //   - true: 收到目标事件；
+    //   - true: 收到目标事件
     //   - false: 超时或等待状态无效
     [[nodiscard]] bool await_resume() const noexcept {
       return state_ != nullptr &&

@@ -27,8 +27,8 @@ void RpcServer::RegisterService(google::protobuf::Service* service) {
 }
 
 // 启动顺序说明:
-// 1) 先向服务发现注册端点, 确保对外可见；
-// 2) 再启动本地监听；
+// 1) 先向服务发现注册端点, 确保对外可见
+// 2) 再启动本地监听
 // 3) 最后进入 Reactor 事件循环
 void RpcServer::Run() {
   RegisterEndpoints();
@@ -54,7 +54,7 @@ void RpcServer::RegisterEndpoints() {
 }
 
 // 单帧处理:
-// - 分发失败时尽力提取 request_id, 返回框架错误响应；
+// - 分发失败时尽力提取 request_id, 返回框架错误响应
 // - 成功时直接把编码后的响应帧写回连接
 void RpcServer::OnFrame(int connection_fd, std::string frame) {
   auto response = dispatcher_.HandleFrame(frame);
@@ -76,7 +76,7 @@ void RpcServer::OnFrame(int connection_fd, std::string frame) {
   connection_manager_.Send(connection_fd, std::move(response.value()));
 }
 
-// 统一构造框架错误响应并发送；编码失败时静默丢弃 (仅避免二次异常)
+// 统一构造框架错误响应并发送编码失败时静默丢弃 (仅避免二次异常)
 void RpcServer::SendFrameworkError(int connection_fd, std::uint64_t request_id,
                                    const RpcError& error) {
   RpcResponse response{request_id, error.code, error.message, {}};

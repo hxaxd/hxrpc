@@ -29,12 +29,12 @@ class Serializer {
  public:
   virtual ~Serializer() = default;
   // 将 protobuf 消息编码为网络 payload
-  // 返回值: 成功为 payload 字节串；失败返回序列化错误
+  // 返回值: 成功为 payload 字节串失败返回序列化错误
   [[nodiscard]] virtual std::expected<std::string, RpcError> Serialize(
       const google::protobuf::Message& message,
       const SerializationContext& context) const = 0;
   // 将 payload 解析回 protobuf 消息对象
-  // message 由调用方预先构造具体类型实例；失败时返回反序列化错误
+  // message 由调用方预先构造具体类型实例失败时返回反序列化错误
   [[nodiscard]] virtual std::expected<void, RpcError> Deserialize(
       std::string_view payload, google::protobuf::Message& message,
       const SerializationContext& context) const = 0;

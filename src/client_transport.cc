@@ -308,7 +308,7 @@ std::expected<std::string, RpcError> TcpClientTransport::ReceiveFrame(
     return std::unexpected(recv_result.error());
   }
   const std::uint32_t frame_size = ntohl(network_frame_size);
-  // 下限: 长度字段至少覆盖 body 长度语义；上限: 防止异常大包导致内存风险
+  // 下限: 长度字段至少覆盖 body 长度语义上限: 防止异常大包导致内存风险
   constexpr std::uint32_t kMaxFrameSize = 4 * 1024 * 1024;
   if (frame_size < sizeof(network_frame_size) || frame_size > kMaxFrameSize) {
     return std::unexpected(RpcError{RpcStatusCode::kInvalidPacket,

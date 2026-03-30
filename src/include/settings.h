@@ -69,13 +69,13 @@ class SettingsLoader {
  public:
   // 解析服务端配置
   // 参数: config - 已加载的原始配置表
-  // 返回: ServerConfig；若关键字段非法则返回 unexpected(error)
+  // 返回: ServerConfig若关键字段非法则返回 unexpected(error)
   [[nodiscard]] static std::expected<ServerConfig, std::string>
   LoadServerConfig(const hxrpcconfig& config);
 
   // 解析客户端配置
   // 参数: config - 已加载的原始配置表
-  // 返回: ClientConfig；超时字段非法时返回 unexpected(error)
+  // 返回: ClientConfig超时字段非法时返回 unexpected(error)
   [[nodiscard]] static std::expected<ClientConfig, std::string>
   LoadClientConfig(const hxrpcconfig& config);
 

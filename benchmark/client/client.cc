@@ -1,9 +1,3 @@
-// benchmark/client/client.cc
-// 基准压测客户端示例
-// 设计目标: 以最小业务逻辑展示 hxrpc
-// 客户端并发调用链路, 并输出可回归比较的结构化指标报告
-// 本文件仅演示调用方式与统计口径, 不负责业务协议演进
-
 #include <sys/resource.h>
 
 #include <algorithm>
@@ -44,31 +38,19 @@ struct BenchmarkOptions {
   int timeout_ms{kDefaultTimeoutMs};
 };
 
-// 把字符串解析成正整数
-// 参数: raw - 待解析字符串
-// 返回:
-//   - 解析成功且值 > 0: 返回对应整数；
-//   - 解析失败, 存在非数字字符或值 <= 0: 返回 std::nullopt
-// 错误语义: 本函数不抛异常, 调用方通过 optional 判定并回退到默认值
-std::optional<int> ParsePositiveInt(const std::string& raw) {
+std::optional<int> ParsePositiveInt(const std::string& raw) noexcept {
   int value{0};
 
   // 把字符串转成 int, 返回错误码 + 结束位置
   auto [ptr, ec] = std::from_chars(raw.data(), raw.data() + raw.size(), value);
 
-  if (ec != std::errc{} || ptr == raw.data() || ptr != raw.data() + raw.size())
+  if (ec != std::errc{} || ptr != raw.data() + raw.size() || value <= 0)
     return std::nullopt;
 
   return value;
 }
 
-// 解析命令行参数并构建压测配置
-// 参数: argc/argv - 程序启动参数
-// 返回: BenchmarkOptions
-// 设计原因: 命令行参数仅覆盖关键压测维度, 其余保持默认值,
-// 减少压测脚本维护成本 错误语义: 非法参数值会被忽略并使用默认值,
-// 不会中断进程启动
-BenchmarkOptions ParseOptions(int argc, char** argv) {
+BenchmarkOptions ParseOptions(int argc, const char** argv) noexcept {
   BenchmarkOptions options;
   for (int index = 1; index < argc; ++index) {
     const std::string arg = argv[index];
@@ -85,6 +67,8 @@ BenchmarkOptions ParseOptions(int argc, char** argv) {
       if (auto value = ParsePositiveInt(argv[++index]); value) {
         options.timeout_ms = *value;
       }
+    } else {
+      LOG(Error) << "unrecognized argument: " << arg;
     }
   }
   return options;
@@ -96,12 +80,12 @@ std::string MakeTimestamp() {
   const std::time_t current_time = std::chrono::system_clock::to_time_t(now);
   std::tm time_info{};
 
-  // 可重入版本的 localtime (不可重入版本的 localtime 不是线程安全的,
-  // 用了静态变量来做缓冲)
+  // 可重入版本的 localtime
+  // 不可重入版本的 localtime 不是线程安全的,
+  // 用了静态变量来做缓冲
   localtime_r(&current_time, &time_info);  // 时间戳 -> 时间结构体
 
   char buffer[32]{};
-  // 使用 strftime 保证在当前 libstdc++ 环境下可移植。
   if (std::strftime(buffer, sizeof(buffer), "%Y%m%d_%H%M%S", &time_info) == 0)
     return "19700101_000000";
   return std::string(buffer);
@@ -117,19 +101,19 @@ std::string MakeClientLogPath(const std::string& timestamp) {
 
 struct Metrics {
   // 成功率 (成功请求数 / 总请求数)
-  double success_rate{0.0};
+  double success_rate{0.0lf};
   // 平均延迟 (毫秒)
-  double avg_latency_ms{0.0};
+  double avg_latency_ms{0.0lf};
   // P95/P99 延迟 (毫秒)
-  double p95_latency_ms{0.0};
-  double p99_latency_ms{0.0};
+  double p95_latency_ms{0.0lf};
+  double p99_latency_ms{0.0lf};
 };
 
 // 计算分位延迟
 // 参数:
-//   - sorted_latencies: 已按升序排序的延迟样本 (毫秒) ；
+//   - sorted_latencies: 已按升序排序的延迟样本 (毫秒)
 //   - quantile: 分位点 (例如 0.95/0.99)
-// 返回: 对应分位延迟 (毫秒) ；当样本为空时返回 0
+// 返回: 对应分位延迟 (毫秒) 当样本为空时返回 0
 // 设计原因: 采用向上取整后减一的离散索引规则, 保证尾部延迟统计更保守
 double QuantileMs(const std::vector<double>& sorted_latencies,
                   double quantile) {
@@ -143,8 +127,8 @@ double QuantileMs(const std::vector<double>& sorted_latencies,
 
 // 由原始统计值构建核心指标
 // 参数:
-//   - total_requests: 总请求数；
-//   - latencies_ms: 成功请求的延迟样本 (毫秒) ；
+//   - total_requests: 总请求数
+//   - latencies_ms: 成功请求的延迟样本 (毫秒)
 //   - success_count: 业务成功请求数
 // 返回: Metrics, 包含成功率, 平均延迟与分位延迟
 // 错误语义: 当 total_requests 或样本为空时, 返回值中的对应指标保持 0
@@ -160,7 +144,7 @@ Metrics BuildMetrics(int total_requests,
     return metrics;
   }
 
-  double total_latency = 0.0;
+  double total_latency = 0.0lf;
   for (const double latency : latencies_ms) {
     total_latency += latency;
   }
@@ -176,12 +160,12 @@ Metrics BuildMetrics(int total_requests,
 
 // 将压测结果写入 JSON 报告文件, 便于后续回归对比
 // 参数:
-//   - report_path: 输出文件路径；
-//   - options: 压测配置；
+//   - report_path: 输出文件路径
+//   - options: 压测配置
 //   - total_requests/success_count/framework_failures/business_failures:
-//   计数指标；
-//   - elapsed_ms/qps: 吞吐指标；
-//   - metrics: 延迟与成功率指标；
+//   计数指标
+//   - elapsed_ms/qps: 吞吐指标
+//   - metrics: 延迟与成功率指标
 //   - launch_error: 线程启动阶段错误信息 (若存在)
 // 错误语义: 目录创建或文件打开失败时仅记录日志并返回, 不抛异常, 不终止主流程
 void WriteBenchmarkReport(const std::string& report_path,

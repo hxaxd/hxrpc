@@ -10,7 +10,7 @@ namespace {
 template <typename T>
 const T& ChooseItem(const std::vector<T>& items, ResolverSelectionPolicy policy,
                     std::mt19937& random_engine) {
-  // 预留多策略扩展点；当前仅实现随机选择
+  // 预留多策略扩展点当前仅实现随机选择
   switch (policy) {
     case ResolverSelectionPolicy::kRandom:
       break;

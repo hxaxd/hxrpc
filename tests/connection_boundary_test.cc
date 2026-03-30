@@ -113,7 +113,7 @@ int main() {
       hxrpc::RpcCodec::DecodeResponse(ReceiveFrame(fd));
   assert(second_response.has_value());
   assert(second_response->request_id == 9);
-  // 关键断言: 协议层处理成功；业务成功与否由 payload 内业务字段表达
+  // 关键断言: 协议层处理成功业务成功与否由 payload 内业务字段表达
   assert(second_response->Ok());
 
   ::close(fd);

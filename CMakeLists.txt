@@ -5,15 +5,15 @@ cmake_minimum_required(VERSION 3.20)
 project(hxrpc)
 
 # 统一 C++ 标准与编译行为: 
-# - 使用 C++23；
-# - 强制要求编译器支持该标准；
+# - 使用 C++23
+# - 强制要求编译器支持该标准
 # - 关闭编译器扩展, 尽量保持跨平台一致性
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # 头文件搜索路径: 
-# - src/include 放核心库对外头文件；
+# - src/include 放核心库对外头文件
 # - benchmark 放示例 proto 生成头 (如 user.pb.h) 
 include_directories(${CMAKE_SOURCE_DIR}/src/include)
 include_directories(${CMAKE_SOURCE_DIR}/benchmark)
@@ -34,8 +34,8 @@ set(LIBS
 )
 
 # 按模块组织构建: 
-# - src: 核心静态库；
-# - benchmark: 示例客户端/服务端与 proto；
+# - src: 核心静态库
+# - benchmark: 示例客户端/服务端与 proto
 # - tests: 单元与集成测试
 add_subdirectory(src)
 add_subdirectory(benchmark)

@@ -84,7 +84,7 @@ void ConnectionManager::SetFrameHandler(
   frame_handler_ = std::move(frame_handler);
 }
 
-// 发送策略: 先写入发送缓冲, 再尝试立即 flush；写不完时由 EPOLLOUT 续传
+// 发送策略: 先写入发送缓冲, 再尝试立即 flush写不完时由 EPOLLOUT 续传
 void ConnectionManager::Send(int connection_fd, std::string frame) {
   auto it = connections_.find(connection_fd);
   if (it == connections_.end()) {
@@ -216,8 +216,8 @@ void ConnectionManager::HandleWritable(int connection_fd) {
 }
 
 // 帧切分规则:
-// - 前 4 字节为网络序长度字段；
-// - 若长度非法 (过小/过大) 则主动断开连接防御异常输入；
+// - 前 4 字节为网络序长度字段
+// - 若长度非法 (过小/过大) 则主动断开连接防御异常输入
 // - 支持粘包: 每次尽可能提取多帧
 void ConnectionManager::ProcessInput(int connection_fd) {
   auto it = connections_.find(connection_fd);

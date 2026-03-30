@@ -22,7 +22,7 @@ Reactor::~Reactor() {
   }
 }
 
-// 将 fd 与回调一起注册到 epoll；handlers_ 保存回调以便事件分发
+// 将 fd 与回调一起注册到 epollhandlers_ 保存回调以便事件分发
 void Reactor::Add(int fd, std::uint32_t events,
                   std::function<void(int)> on_readable,
                   std::function<void(int)> on_writable,
@@ -55,8 +55,8 @@ void Reactor::Remove(int fd) {
 }
 
 // 事件循环设计说明:
-// - 采用固定 100ms 轮询超时, 保证 Stop() 不需要额外 eventfd 也能较快生效；
-// - EINTR 直接重试, 避免信号中断导致服务退出；
+// - 采用固定 100ms 轮询超时, 保证 Stop() 不需要额外 eventfd 也能较快生效
+// - EINTR 直接重试, 避免信号中断导致服务退出
 // - 错误事件 (ERR/HUP) 优先于读写事件处理, 避免在异常连接上继续收发
 void Reactor::Loop() {
   running_ = true;
@@ -98,7 +98,7 @@ void Reactor::Loop() {
   }
 }
 
-// 通过运行标志控制循环退出；真正返回点在 Loop 的下一轮 epoll_wait 后
+// 通过运行标志控制循环退出真正返回点在 Loop 的下一轮 epoll_wait 后
 void Reactor::Stop() { running_ = false; }
 
 // 将可读等待委托给 AsyncRuntime, 统一协程调度策略

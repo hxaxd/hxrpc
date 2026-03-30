@@ -16,8 +16,8 @@ namespace hxrpc {
 // 它只关心某个 fd 可读/可写/出错时该回调谁, 不理解连接状态,
 // RPC 协议, protobuf 或业务方法
 // 设计上保持极简:
-// 1) 统一管理 epoll 与 fd->回调映射；
-// 2) 与上层通过回调解耦, 避免网络事件循环与 RPC 语义耦合；
+// 1) 统一管理 epoll 与 fd->回调映射
+// 2) 与上层通过回调解耦, 避免网络事件循环与 RPC 语义耦合
 // 3) 向协程运行时暴露按 fd/事件等待的能力
 class Reactor {
  public:
@@ -35,11 +35,11 @@ class Reactor {
            std::function<void(int)> on_error);
   // 更新 fd 关注的事件集合, 不改变回调函数
   void Update(int fd, std::uint32_t events);
-  // 从 epoll 与内部映射移除 fd；调用方负责业务层状态清理
+  // 从 epoll 与内部映射移除 fd调用方负责业务层状态清理
   void Remove(int fd);
   // 主事件循环: 阻塞等待 I/O 事件并分发给对应回调
   void Loop();
-  // 请求退出事件循环；由 Loop 在下一次轮询时感知并返回
+  // 请求退出事件循环由 Loop 在下一次轮询时感知并返回
   void Stop();
   // 为协程场景提供等待可读能力
   // timeout_ms < 0 通常表示不超时 (由 AsyncRuntime 解释具体语义)

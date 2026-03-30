@@ -23,11 +23,11 @@ class RpcServer {
   // config: 服务端运行配置 (监听地址, 序列化策略, 发现配置, reactor 参数等)
   explicit RpcServer(ServerConfig config);
 
-  // 注册 protobuf 业务服务；通常在 Run 前完成全部注册
+  // 注册 protobuf 业务服务通常在 Run 前完成全部注册
   void RegisterService(google::protobuf::Service* service);
   // 启动服务: 注册发现端点, 监听 socket, 进入 Reactor 主循环
   void Run();
-  // 请求停止事件循环；用于优雅停机触发
+  // 请求停止事件循环用于优雅停机触发
   void Stop();
 
  private:

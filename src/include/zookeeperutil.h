@@ -27,10 +27,10 @@ class ZkClient {
   // 启动连接: 无参版本从全局配置读取 ZooKeeper 地址
   [[nodiscard]] std::expected<void, hxrpc::RpcError> Start();
   // endpoint: ZooKeeper 服务地址
-  // 返回: 成功表示会话已建立；失败为发现层错误
+  // 返回: 成功表示会话已建立失败为发现层错误
   [[nodiscard]] std::expected<void, hxrpc::RpcError> Start(
       const hxrpc::Endpoint& endpoint);
-  // 创建节点；若节点已存在则视为成功 (幂等行为)
+  // 创建节点若节点已存在则视为成功 (幂等行为)
   [[nodiscard]] std::expected<void, hxrpc::RpcError> CreateNode(
       const char* path, const char* data, int datalen, int flags = 0);
   // 递归确保路径存在 (逐层创建持久节点)
@@ -41,7 +41,7 @@ class ZkClient {
       const char* path) const;
   [[nodiscard]] std::expected<std::vector<std::string>, hxrpc::RpcError>
   GetChildren(const char* path) const;
-  // 读取子节点并注册 watcher；on_change 在子节点变化时触发
+  // 读取子节点并注册 watcheron_change 在子节点变化时触发
   [[nodiscard]] std::expected<std::vector<std::string>, hxrpc::RpcError>
   GetChildrenWatched(const std::string& path,
                      std::function<void(const std::string&)> on_change);

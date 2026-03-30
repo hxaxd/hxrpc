@@ -18,7 +18,7 @@ struct LoggerOptions {
   bool async_enabled{true};
   // 是否输出到标准错误流
   bool stderr_enabled{true};
-  // 日志文件路径；为空表示不写文件
+  // 日志文件路径为空表示不写文件
   std::string file_path;
   // 低于该等级的日志会被过滤
   LogLevel min_level{LogLevel::kInfo};
@@ -35,12 +35,12 @@ class Logger {
 
   // 更新日志配置
   // 参数: options - 输出目标与过滤策略
-  // 返回: 成功返回空 expected；失败返回错误文本
+  // 返回: 成功返回空 expected失败返回错误文本
   // 错误语义: 不抛异常, 调用方可选择继续运行或降级
   std::expected<void, std::string> Configure(const LoggerOptions& options);
 
   // 写入一条日志
-  // 参数: level - 日志等级；message - 原始文本
+  // 参数: level - 日志等级message - 原始文本
   // 返回: void
   void Write(LogLevel level, std::string message);
 
