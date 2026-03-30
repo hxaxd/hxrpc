@@ -68,7 +68,7 @@ BenchmarkOptions ParseOptions(int argc, const char** argv) noexcept {
         options.timeout_ms = *value;
       }
     } else {
-      LOG(Error) << "unrecognized argument: " << arg;
+      LOG(Warn) << "unrecognized argument: " << arg;
     }
   }
   return options;
@@ -109,33 +109,22 @@ struct Metrics {
   double p99_latency_ms{0.0lf};
 };
 
-// 计算分位延迟
-// 参数:
-//   - sorted_latencies: 已按升序排序的延迟样本 (毫秒)
-//   - quantile: 分位点 (例如 0.95/0.99)
-// 返回: 对应分位延迟 (毫秒) 当样本为空时返回 0
-// 设计原因: 采用向上取整后减一的离散索引规则, 保证尾部延迟统计更保守
 double QuantileMs(const std::vector<double>& sorted_latencies,
                   double quantile) {
   if (sorted_latencies.empty()) {
     return 0.0;
   }
-  const std::size_t index = static_cast<std::size_t>(
-      std::ceil(quantile * static_cast<double>(sorted_latencies.size())) - 1.0);
+  const std::size_t index =
+      static_cast<std::size_t>(
+          std::ceil(quantile * static_cast<double>(sorted_latencies.size()))) -
+      1;  // 向上取整 -> 转整数 -> 转索引 (0-based)
   return sorted_latencies[std::min(index, sorted_latencies.size() - 1)];
 }
 
-// 由原始统计值构建核心指标
-// 参数:
-//   - total_requests: 总请求数
-//   - latencies_ms: 成功请求的延迟样本 (毫秒)
-//   - success_count: 业务成功请求数
-// 返回: Metrics, 包含成功率, 平均延迟与分位延迟
-// 错误语义: 当 total_requests 或样本为空时, 返回值中的对应指标保持 0
 Metrics BuildMetrics(int total_requests,
                      const std::vector<double>& latencies_ms,
                      int success_count) {
-  Metrics metrics;
+  Metrics metrics{};
   if (total_requests > 0) {
     metrics.success_rate = 100.0 * static_cast<double>(success_count) /
                            static_cast<double>(total_requests);
@@ -144,10 +133,8 @@ Metrics BuildMetrics(int total_requests,
     return metrics;
   }
 
-  double total_latency = 0.0lf;
-  for (const double latency : latencies_ms) {
-    total_latency += latency;
-  }
+  double total_latency =
+      std::accumulate(latencies_ms.begin(), latencies_ms.end(), 0.0);
   metrics.avg_latency_ms =
       total_latency / static_cast<double>(latencies_ms.size());
 
@@ -158,36 +145,26 @@ Metrics BuildMetrics(int total_requests,
   return metrics;
 }
 
-// 将压测结果写入 JSON 报告文件, 便于后续回归对比
-// 参数:
-//   - report_path: 输出文件路径
-//   - options: 压测配置
-//   - total_requests/success_count/framework_failures/business_failures:
-//   计数指标
-//   - elapsed_ms/qps: 吞吐指标
-//   - metrics: 延迟与成功率指标
-//   - launch_error: 线程启动阶段错误信息 (若存在)
-// 错误语义: 目录创建或文件打开失败时仅记录日志并返回, 不抛异常, 不终止主流程
-void WriteBenchmarkReport(const std::string& report_path,
-                          const BenchmarkOptions& options, int total_requests,
-                          int success_count, int framework_failures,
-                          int business_failures, long long elapsed_ms,
-                          double qps, const Metrics& metrics,
-                          const std::optional<std::string>& launch_error) {
+void WriteBench markReport(const std::string& report_path,
+                           const BenchmarkOptions& options, int total_requests,
+                           int success_count, int framework_failures,
+                           int business_failures, long long elapsed_ms,
+                           double qps, const Metrics& metrics,
+                           const std::optional<std::string>& launch_error) {
   const std::filesystem::path output_path(report_path);
   if (!output_path.parent_path().empty()) {
     std::error_code error;
     std::filesystem::create_directories(output_path.parent_path(), error);
     if (error) {
-      LOG(Warn) << "failed to create benchmark report directory: "
-                << error.message();
+      LOG(Error) << "failed to create benchmark report directory: "
+                 << error.message();
       return;
     }
   }
 
   std::ofstream output(output_path, std::ios::out | std::ios::trunc);
   if (!output.is_open()) {
-    LOG(Warn) << "failed to open benchmark report file: " << report_path;
+    LOG(Error) << "failed to open benchmark report file: " << report_path;
     return;
   }
 
@@ -219,8 +196,7 @@ void WriteBenchmarkReport(const std::string& report_path,
 }  // namespace
 
 int main(int argc, char** argv) {
-  // 设计原因: benchmark 关注的是延迟与吞吐, 可观测性由日志与报告承担, 关闭 core
-  // dump 可避免磁盘噪声 压测程序通常不需要 core dump, 避免生成大体积转储文件
+  // benchmark 关注的是延迟与吞吐, 可观测性由日志与报告承担, 关闭 core dump
   rlimit core_limit{};
   core_limit.rlim_cur = 0;  // 软限制
   core_limit.rlim_max = 0;  // 硬限制
@@ -244,8 +220,8 @@ int main(int argc, char** argv) {
   if (auto logger_result =
           hxrpc::Logger::Instance().Configure(client_logger_options);
       !logger_result) {
-    LOG(Warn) << "failed to configure benchmark client logger: "
-              << logger_result.error();
+    LOG(Error) << "failed to configure benchmark client logger: "
+               << logger_result.error();
   }
 
   auto server_config_result =
