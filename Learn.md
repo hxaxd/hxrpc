@@ -143,8 +143,6 @@
 - `src/config.cc`
 - `src/include/settings.h`
 - `src/settings.cc`
-- `src/include/application.h`
-- `src/application.cc`
 
 理解顺序:
 
@@ -158,28 +156,19 @@
 
 所以它本质上是文本配置加载器, 不是最终给 RPC 框架直接用的配置对象
 
-### 第二步: `SettingsLoader`
+### 第二步: typed settings
 
-`SettingsLoader` 才负责把字符串配置装配成真正的:
+`ServerSettings / ClientSettings / LoggerSettings` 才负责把字符串配置装配成真正的:
 
 - `ServerConfig`
 - `ClientConfig`
 - `DiscoveryConfig`
+- `LoggerConfig`
 
 这一步很值得学, 因为它体现了一个很常见的工程模式:
 
 - 底层配置格式可以很松
 - 业务层拿到的一定是强类型对象
-
-### 第三步: `hxrpcApplication`
-
-`hxrpcApplication::Init()` 做的事情主要是:
-
-- 解析 `-i <config-file>`
-- 加载配置
-- 配置日志
-
-所以它更像启动期装配器
 
 ---
 
@@ -198,7 +187,7 @@
 协议格式是:
 
 ```text
-----------------------+----------------------+----------------------+------------------+
++----------------------+----------------------+----------------------+------------------+
 | 4B total_length      | 4B header_length     | protobuf header      | payload          |
 +----------------------+----------------------+----------------------+------------------+
 ```
@@ -763,17 +752,3 @@
 9. `tests/end_to_end_test.cc`
 
 看完这 9 个文件, 你基本就能把整个项目讲明白
-
----
-
-## 23. 你可以怎么继续问我
-
-如果你愿意, 我下一步还能继续帮你做这几种版本:
-
-- 按服务端视角单独写一版学习笔记
-- 按客户端视角单独写一版学习笔记
-- 画一张单次 RPC 时序图文字版
-- 把 `benchmark/client/client.cc` 逐行讲解
-- 把 `RpcDispatcher::HandleFrame()` 逐行讲解
-
-如果只选一个, 我最推荐下一步讲 `RpcDispatcher::HandleFrame()`, 因为它最像整个框架的十字路口

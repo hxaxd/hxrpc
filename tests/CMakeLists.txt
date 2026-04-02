@@ -1,5 +1,5 @@
 # -------------------------------
-# 配置解析测试: 覆盖 YAML 读取与 SettingsLoader 映射
+# 配置解析测试: 覆盖 YAML 读取与 typed settings 映射
 # -------------------------------
 add_executable(config_test config_test.cc)
 target_link_libraries(config_test PRIVATE core ${LIBS})

@@ -24,8 +24,6 @@ class ZkClient {
   ZkClient(const ZkClient&) = delete;
   ZkClient& operator=(const ZkClient&) = delete;
 
-  // 启动连接: 无参版本从全局配置读取 ZooKeeper 地址
-  [[nodiscard]] std::expected<void, hxrpc::RpcError> Start();
   // endpoint: ZooKeeper 服务地址
   // 返回: 成功表示会话已建立失败为发现层错误
   [[nodiscard]] std::expected<void, hxrpc::RpcError> Start(

@@ -8,12 +8,18 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <string_view>
 
 #include "../user.pb.h"
-#include "application.h"
 #include "logger.h"
 #include "rpc_server.h"
 #include "settings.h"
+
+namespace {
+
+constexpr std::string_view kConfigPath = "server.yaml";
+
+}
 
 class UserService final : public Kuser::UserServiceRpc {
  public:
@@ -77,6 +83,9 @@ class UserService final : public Kuser::UserServiceRpc {
 };
 
 int main(int argc, char** argv) {
+  (void)argc;
+  (void)argv;
+
   // 设计原因: 示例服务默认作为长期运行进程, 关闭 core dump
   // 可降低压测环境的磁盘占用
   rlimit core_limit{};
@@ -84,27 +93,27 @@ int main(int argc, char** argv) {
   core_limit.rlim_max = 0;
   (void)::setrlimit(RLIMIT_CORE, &core_limit);
 
-  hxrpcApplication::Init(argc, argv);
-  hxrpc::LoggerOptions server_logger_options;
-  server_logger_options.async_enabled = true;
-  server_logger_options.stderr_enabled = true;
-  server_logger_options.file_path = "logs/benchmark_server.log";
-  server_logger_options.min_level = hxrpc::LogLevel::kWarn;
-  if (auto logger_result =
-          hxrpc::Logger::Instance().Configure(server_logger_options);
-      !logger_result) {
-    LOG(Warn) << "failed to configure benchmark server logger: "
-              << logger_result.error();
+  auto logger_settings = hxrpc::LoggerSettings::Load(kConfigPath);
+  if (!logger_settings) {
+    std::cerr << "failed to load logger settings: " << logger_settings.error()
+              << std::endl;
+    return EXIT_FAILURE;
   }
-
-  auto config_result =
-      hxrpc::SettingsLoader::LoadServerConfig(hxrpcApplication::GetConfig());
-  if (!config_result) {
-    LOG(Error) << "failed to build server config: " << config_result.error();
+  if (auto logger_result =
+          hxrpc::Logger::Instance().Configure(logger_settings->config.ToOptions());
+      !logger_result) {
+    std::cerr << "failed to configure logger: " << logger_result.error()
+              << std::endl;
     return EXIT_FAILURE;
   }
 
-  hxrpc::RpcServer server(config_result.value());
+  auto server_settings = hxrpc::ServerSettings::Load(kConfigPath);
+  if (!server_settings) {
+    LOG(Error) << "failed to load server settings: " << server_settings.error();
+    return EXIT_FAILURE;
+  }
+
+  hxrpc::RpcServer server(server_settings->config);
   server.RegisterService(new UserService());
 
   std::cout << "Starting benchmark RPC server. Login with alice / 123456."

@@ -8,7 +8,6 @@
 #include <string>
 #include <utility>
 
-#include "application.h"
 #include "types.h"
 
 namespace {
@@ -48,16 +47,6 @@ ZkClient::~ZkClient() {
   if (handle_ != nullptr) {
     zookeeper_close(handle_);
   }
-}
-
-std::expected<void, hxrpc::RpcError> ZkClient::Start() {
-  // 默认从应用配置读取 ZooKeeper 地址, 便于与统一配置系统对齐
-  const auto host =
-      hxrpcApplication::GetConfig().Load("discovery.zookeeper.host");
-  const auto port =
-      hxrpcApplication::GetConfig().Load("discovery.zookeeper.port");
-  return Start(
-      hxrpc::Endpoint{host, static_cast<std::uint16_t>(std::stoi(port))});
 }
 
 std::expected<void, hxrpc::RpcError> ZkClient::Start(

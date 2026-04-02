@@ -12,6 +12,7 @@ discovery:
     port: 2181
 
 logging:
-  async: true
-  to_stderr: true
-  path: logs/benchmark_server.log
+  mode: async
+  sink: stderr_and_file
+  file_path: logs/benchmark_server.log
+  min_level: info

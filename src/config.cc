@@ -11,32 +11,7 @@
 #include <utility>
 #include <vector>
 
-namespace {
-
-std::string TrimCopy(std::string value) {
-  // 返回去空白后的副本, 避免调用方手工复制
-  hxrpcconfig::Trim(value);
-  return value;
-}
-
-std::string StripQuotes(std::string value) {
-  // 去除成对包裹的单/双引号, 便于兼容常见配置写法
-  if (value.size() >= 2 && ((value.front() == '"' && value.back() == '"') ||
-                            (value.front() == '\'' && value.back() == '\''))) {
-    return value.substr(1, value.size() - 2);
-  }
-  return value;
-}
-
-std::size_t CountIndent(std::string_view line) {
-  // 统计行首空格/Tab 数, 用于估算层级关系
-  std::size_t indent = 0;
-  while (indent < line.size() &&
-         (line[indent] == ' ' || line[indent] == '\t')) {
-    ++indent;
-  }
-  return indent;
-}
+#include "string_utils.h"
 
 void ParseYamlLine(std::string line,
                    std::vector<std::pair<std::size_t, std::string>>& sections,
@@ -50,19 +25,21 @@ void ParseYamlLine(std::string line,
   if (comment != std::string::npos) {
     line.erase(comment);
   }
-  if (TrimCopy(line).empty()) {
+  if (hxrpc::detail::TrimCopy(line).empty()) {
     return;
   }
 
-  const std::size_t indent = CountIndent(line);
-  std::string trimmed = TrimCopy(line);
+  const std::size_t indent = hxrpc::detail::CountIndent(line);
+  std::string trimmed = hxrpc::detail::TrimCopy(line);
   const auto delimiter = trimmed.find(':');
   if (delimiter == std::string::npos) {
     return;
   }
 
-  std::string key = StripQuotes(TrimCopy(trimmed.substr(0, delimiter)));
-  std::string value = StripQuotes(TrimCopy(trimmed.substr(delimiter + 1)));
+  std::string key = hxrpc::detail::StripQuotes(
+      hxrpc::detail::TrimCopy(trimmed.substr(0, delimiter)));
+  std::string value = hxrpc::detail::StripQuotes(
+      hxrpc::detail::TrimCopy(trimmed.substr(delimiter + 1)));
 
   while (!sections.empty() && sections.back().first >= indent) {
     sections.pop_back();
@@ -88,8 +65,6 @@ void ParseYamlLine(std::string line,
   config_map[path] = value;
 }
 
-}  // namespace
-
 std::expected<void, std::string> hxrpcconfig::LoadConfigFile(
     const char* config_file) {
   // 错误语义: 文件无法打开时返回 unexpected, 不抛异常
@@ -105,7 +80,7 @@ std::expected<void, std::string> hxrpcconfig::LoadConfigFile(
   char buffer[1024];
   while (std::fgets(buffer, sizeof(buffer), file.get()) != nullptr) {
     std::string line(buffer);
-    const std::string trimmed = TrimCopy(line);
+    const std::string trimmed = hxrpc::detail::TrimCopy(line);
     if (trimmed.empty() || trimmed.front() == '#') {
       continue;
     }
@@ -123,6 +98,11 @@ std::string hxrpcconfig::Load(std::string_view key) const {
     return {};
   }
   return it->second;
+}
+
+const std::unordered_map<std::string, std::string>& hxrpcconfig::Entries()
+    const {
+  return config_map_;
 }
 
 void hxrpcconfig::Trim(std::string& value) {

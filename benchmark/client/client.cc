@@ -11,14 +11,15 @@
 #include <iomanip>
 #include <iostream>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 #include "../user.pb.h"
-#include "application.h"
 #include "logger.h"
 #include "rpc_client.h"
 #include "settings.h"
@@ -28,6 +29,7 @@ namespace {
 constexpr int kDefaultConcurrency{32};
 constexpr int kDefaultRequestsPerWorker{4};
 constexpr int kDefaultTimeoutMs{1500};
+constexpr std::string_view kConfigPath = "server.yaml";
 
 struct BenchmarkOptions {
   // 并发 worker 线程数
@@ -50,7 +52,7 @@ std::optional<int> ParsePositiveInt(const std::string& raw) noexcept {
   return value;
 }
 
-BenchmarkOptions ParseOptions(int argc, const char** argv) noexcept {
+BenchmarkOptions ParseOptions(int argc, char** argv) noexcept {
   BenchmarkOptions options;
   for (int index = 1; index < argc; ++index) {
     const std::string arg = argv[index];
@@ -101,12 +103,12 @@ std::string MakeClientLogPath(const std::string& timestamp) {
 
 struct Metrics {
   // 成功率 (成功请求数 / 总请求数)
-  double success_rate{0.0lf};
+  double success_rate{0.0};
   // 平均延迟 (毫秒)
-  double avg_latency_ms{0.0lf};
+  double avg_latency_ms{0.0};
   // P95/P99 延迟 (毫秒)
-  double p95_latency_ms{0.0lf};
-  double p99_latency_ms{0.0lf};
+  double p95_latency_ms{0.0};
+  double p99_latency_ms{0.0};
 };
 
 double QuantileMs(const std::vector<double>& sorted_latencies,
@@ -145,12 +147,12 @@ Metrics BuildMetrics(int total_requests,
   return metrics;
 }
 
-void WriteBench markReport(const std::string& report_path,
-                           const BenchmarkOptions& options, int total_requests,
-                           int success_count, int framework_failures,
-                           int business_failures, long long elapsed_ms,
-                           double qps, const Metrics& metrics,
-                           const std::optional<std::string>& launch_error) {
+void WriteBenchmarkReport(const std::string& report_path,
+                          const BenchmarkOptions& options, int total_requests,
+                          int success_count, int framework_failures,
+                          int business_failures, long long elapsed_ms,
+                          double qps, const Metrics& metrics,
+                          const std::optional<std::string>& launch_error) {
   const std::filesystem::path output_path(report_path);
   if (!output_path.parent_path().empty()) {
     std::error_code error;
@@ -203,32 +205,34 @@ int main(int argc, char** argv) {
   (void)::setrlimit(RLIMIT_CORE,
                     &core_limit);  // 设置 core dump 大小限制为 0
 
-  // 初始化应用 (读取 -i 指定配置, 初始化全局组件等)
-  hxrpcApplication::Init(argc, argv);
-
   // 解析命令行与报告路径
   const BenchmarkOptions benchmark_options = ParseOptions(argc, argv);
   const std::string timestamp = MakeTimestamp();
   const std::string report_path = MakeReportPath(timestamp);
 
-  // 配置 benchmark 客户端日志: 默认仅写文件, 降低终端噪声
-  hxrpc::LoggerOptions client_logger_options;
-  client_logger_options.async_enabled = true;
-  client_logger_options.stderr_enabled = false;
-  client_logger_options.file_path = MakeClientLogPath(timestamp);
-  client_logger_options.min_level = hxrpc::LogLevel::kWarn;
+  auto logger_settings = hxrpc::LoggerSettings::Load(kConfigPath);
+  if (!logger_settings) {
+    std::cerr << "failed to load logger settings: " << logger_settings.error()
+              << std::endl;
+    return EXIT_FAILURE;
+  }
+
+  // benchmark 客户端默认只写独立日志文件, 避免高并发输出污染终端
+  auto client_logger_config = logger_settings->config;
+  client_logger_config.sink = hxrpc::LoggerSink::kFile;
+  client_logger_config.file_path = MakeClientLogPath(timestamp);
+  client_logger_config.min_level = hxrpc::LogLevel::kWarn;
   if (auto logger_result =
-          hxrpc::Logger::Instance().Configure(client_logger_options);
+          hxrpc::Logger::Instance().Configure(client_logger_config.ToOptions());
       !logger_result) {
     LOG(Error) << "failed to configure benchmark client logger: "
                << logger_result.error();
   }
 
-  auto server_config_result =
-      hxrpc::SettingsLoader::LoadServerConfig(hxrpcApplication::GetConfig());
-  if (!server_config_result) {
-    LOG(Error) << "failed to build server-derived config: "
-               << server_config_result.error();
+  auto server_settings = hxrpc::ServerSettings::Load(kConfigPath);
+  if (!server_settings) {
+    LOG(Error) << "failed to load server settings: "
+               << server_settings.error();
     return EXIT_FAILURE;
   }
 
@@ -241,12 +245,12 @@ int main(int argc, char** argv) {
 
   hxrpc::ClientConfig client_config;
   // 这里复用配置中的发现信息, 并指定静态服务地址, 方便 benchmark 开箱即跑
-  client_config.discovery = server_config_result->discovery;
+  client_config.discovery = server_settings->config.discovery;
   client_config.discovery.static_services["UserServiceRpc.Login"] = {
-      server_config_result->listen_endpoint,
+      server_settings->config.listen_endpoint,
   };
   client_config.discovery.static_services["UserServiceRpc.Register"] = {
-      server_config_result->listen_endpoint,
+      server_settings->config.listen_endpoint,
   };
   client_config.serialization.backend = hxrpc::SerializationBackend::kProtobuf;
   client_config.call_options.timeout_ms = benchmark_options.timeout_ms;

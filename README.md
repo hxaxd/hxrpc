@@ -74,13 +74,17 @@
 
 ## 配置模型
 
-启动时配置会被装配成强类型对象:
+启动时配置文件会被加载成强类型对象:
 
+- `ServerSettings`
+- `ClientSettings`
+- `LoggerSettings`
 - `ServerConfig`
 - `ClientConfig`
 - `DiscoveryConfig`
 - `ReactorConfig`
 - `SerializationConfig`
+- `LoggerConfig`
 - `CallOptions`
 
 静态发现示例:
@@ -114,8 +118,11 @@ discovery:
 ### 服务端注册
 
 ```cpp
-auto config = hxrpc::SettingsLoader::LoadServerConfig(hxrpcApplication::GetConfig());
-hxrpc::RpcServer server(config.value());
+auto logger = hxrpc::LoggerSettings::Load("server.yaml").value();
+hxrpc::Logger::Instance().Configure(logger.config.ToOptions());
+
+auto server_settings = hxrpc::ServerSettings::Load("server.yaml").value();
+hxrpc::RpcServer server(server_settings.config);
 server.RegisterService(new UserService());
 server.Run();
 ```
@@ -123,12 +130,12 @@ server.Run();
 ### 客户端同步调用
 
 ```cpp
-auto config = hxrpc::SettingsLoader::LoadClientConfig(hxrpcApplication::GetConfig());
-hxrpc::RpcClient client(config.value());
+auto client_settings = hxrpc::ClientSettings::Load("server.yaml").value();
+hxrpc::RpcClient client(client_settings.config);
 
 Kuser::LoginRequest request;
 Kuser::LoginResponse response;
-hxrpc::CallOptions options = config->call_options;
+hxrpc::CallOptions options = client_settings.config.call_options;
 options.metadata = "trace_id=sync-demo";
 
 const auto* method = Kuser::UserServiceRpc::descriptor()->FindMethodByName("Login");
@@ -186,13 +193,13 @@ cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 
 # 启动 benchmark server
-./bin/benchmark_server -i ./server.yaml
+./bin/benchmark_server
 
 # 跑默认 benchmark
-./bin/benchmark_client -i ./server.yaml
+./bin/benchmark_client
 
 # 跑自定义 benchmark
-./bin/benchmark_client -i ./server.yaml --concurrency 1024 --requests 2 --timeout-ms 3000
+./bin/benchmark_client --concurrency 1024 --requests 2 --timeout-ms 3000
 ```
 
 ### 环境
@@ -215,18 +222,18 @@ cmake --build build -j$(nproc)
 ### 运行服务端与 benchmark 客户端
 
 ```bash
-./bin/benchmark_server -i ./server.yaml
-./bin/benchmark_client -i ./server.yaml
+./bin/benchmark_server
+./bin/benchmark_client
 ```
 
 也可以覆盖 benchmark 参数:
 
 ```bash
-./bin/benchmark_client -i ./server.yaml --concurrency 256 --requests 8 --timeout-ms 1500
+./bin/benchmark_client --concurrency 256 --requests 8 --timeout-ms 1500
 ```
 
-`benchmark_client` 会从 `server.yaml` 读取服务端地址与发现方式,
-但客户端自己的 benchmark 参数仍然写在代码里
+`benchmark_client` 会从默认的 `server.yaml` 读取服务端地址与发现方式,
+并继续通过命令行参数覆盖 benchmark 的并发/请求数/超时
 
 benchmark 结果会额外写入:
 
@@ -267,9 +274,10 @@ discovery:
     UserServiceRpc.Register: 127.0.0.1:8000
 
 logging:
-  async: true
-  to_stderr: true
-  path: logs/benchmark_server.log
+  mode: async
+  sink: stderr_and_file
+  file_path: logs/benchmark_server.log
+  min_level: info
 ```
 
 ## 测试

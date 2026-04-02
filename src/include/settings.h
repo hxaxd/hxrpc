@@ -3,15 +3,16 @@
 
 // src/include/settings.h
 // 运行时配置模型与装载入口
-// 职责: 把通用配置键值映射为强类型配置结构 (服务端/客户端) ,
-// 并集中定义发现, 序列化, 调用超时等核心选项
+// 职责: 从配置文件路径加载强类型配置结构, 并集中定义发现,
+// 序列化, 调用超时, 日志等核心选项
 
 #include <expected>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
-#include "config.h"
+#include "logger.h"
 #include "types.h"
 
 namespace hxrpc {
@@ -26,6 +27,22 @@ enum class DiscoveryBackend {
 enum class SerializationBackend {
   // Protobuf 序列化
   kProtobuf,
+};
+
+enum class LoggerMode {
+  // 当前线程直接写日志
+  kSync,
+  // 通过后台线程异步刷写
+  kAsync,
+};
+
+enum class LoggerSink {
+  // 仅写标准错误
+  kStderr,
+  // 仅写文件
+  kFile,
+  // 同时写标准错误与文件
+  kStderrAndFile,
 };
 
 struct ReactorConfig {
@@ -49,6 +66,27 @@ struct SerializationConfig {
   SerializationBackend backend{SerializationBackend::kProtobuf};
 };
 
+struct LoggerConfig {
+  // 日志写入模式
+  LoggerMode mode{LoggerMode::kAsync};
+  // 日志输出目标
+  LoggerSink sink{LoggerSink::kStderr};
+  // 文件输出路径 (仅 sink 包含 file 时生效)
+  std::string file_path;
+  // 最低输出等级
+  LogLevel min_level{LogLevel::kInfo};
+
+  [[nodiscard]] LoggerOptions ToOptions() const {
+    LoggerOptions options;
+    options.async_enabled = mode == LoggerMode::kAsync;
+    options.stderr_enabled =
+        sink == LoggerSink::kStderr || sink == LoggerSink::kStderrAndFile;
+    options.file_path = file_path;
+    options.min_level = min_level;
+    return options;
+  }
+};
+
 struct ServerConfig {
   // RPC 服务监听地址
   Endpoint listen_endpoint;
@@ -65,29 +103,25 @@ struct ClientConfig {
   CallOptions call_options;
 };
 
-class SettingsLoader {
- public:
-  // 解析服务端配置
-  // 参数: config - 已加载的原始配置表
-  // 返回: ServerConfig若关键字段非法则返回 unexpected(error)
-  [[nodiscard]] static std::expected<ServerConfig, std::string>
-  LoadServerConfig(const hxrpcconfig& config);
+struct ServerSettings {
+  ServerConfig config;
 
-  // 解析客户端配置
-  // 参数: config - 已加载的原始配置表
-  // 返回: ClientConfig超时字段非法时返回 unexpected(error)
-  [[nodiscard]] static std::expected<ClientConfig, std::string>
-  LoadClientConfig(const hxrpcconfig& config);
+  [[nodiscard]] static std::expected<ServerSettings, std::string> Load(
+      std::string_view path);
+};
 
- private:
-  [[nodiscard]] static std::expected<Endpoint, std::string> ParseEndpoint(
-      std::string_view raw, std::string_view field_name);
-  [[nodiscard]] static DiscoveryBackend ParseDiscoveryBackend(
-      std::string_view raw);
-  [[nodiscard]] static std::expected<std::vector<Endpoint>, std::string>
-  ParseEndpointList(std::string_view raw, std::string_view field_name);
-  [[nodiscard]] static DiscoveryConfig LoadDiscoveryConfig(
-      const hxrpcconfig& config);
+struct ClientSettings {
+  ClientConfig config;
+
+  [[nodiscard]] static std::expected<ClientSettings, std::string> Load(
+      std::string_view path);
+};
+
+struct LoggerSettings {
+  LoggerConfig config;
+
+  [[nodiscard]] static std::expected<LoggerSettings, std::string> Load(
+      std::string_view path);
 };
 
 }  // namespace hxrpc
